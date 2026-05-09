@@ -29,9 +29,13 @@ async def test_pending_voice_registry_complete_removes_entries():
 
 @pytest.mark.asyncio
 async def test_voice_transcription_service_runs_backend():
-    service = VoiceTranscriptionService()
+    service = VoiceTranscriptionService(
+        hf_token="hf-token",
+        hf_model_revision="revision",
+        nvidia_nim_api_key="nim-key",
+    )
 
-    with patch("messaging.transcription.transcribe_audio", return_value="hello"):
+    with patch("messaging.transcription.transcribe_audio", return_value="hello") as tx:
         text = await service.transcribe(
             Path("audio.ogg"),
             "audio/ogg",
@@ -40,3 +44,12 @@ async def test_voice_transcription_service_runs_backend():
         )
 
     assert text == "hello"
+    tx.assert_called_once_with(
+        Path("audio.ogg"),
+        "audio/ogg",
+        whisper_model="base",
+        whisper_device="cpu",
+        hf_token="hf-token",
+        hf_model_revision="revision",
+        nvidia_nim_api_key="nim-key",
+    )

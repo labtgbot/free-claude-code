@@ -8,6 +8,8 @@ import pytest
 
 from messaging.transcription import (
     MAX_AUDIO_SIZE_BYTES,
+    _resolve_model_id,
+    _resolve_model_revision,
     transcribe_audio,
 )
 
@@ -55,6 +57,38 @@ def test_transcribe_local_success():
         )
     finally:
         path.unlink(missing_ok=True)
+
+
+def test_builtin_whisper_model_uses_pinned_revision():
+    """Built-in short model names resolve to immutable Hugging Face revisions."""
+    model_id = _resolve_model_id("base")
+    revision = _resolve_model_revision(model_id)
+
+    assert model_id == "openai/whisper-base"
+    assert len(revision) == 40
+    assert revision != "main"
+
+
+def test_custom_local_model_requires_revision():
+    """Custom Hugging Face local models must pin HF_MODEL_REVISION."""
+    with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as f:
+        f.write(b"fake ogg")
+        path = Path(f.name)
+    try:
+        with pytest.raises(ValueError, match="HF_MODEL_REVISION is required"):
+            transcribe_audio(
+                path,
+                "audio/ogg",
+                whisper_model="custom/model",
+                whisper_device="cpu",
+            )
+    finally:
+        path.unlink(missing_ok=True)
+
+
+def test_custom_local_model_accepts_explicit_revision():
+    """Custom Hugging Face revisions are passed through unchanged."""
+    assert _resolve_model_revision("custom/model", "abc123") == "abc123"
 
 
 def test_transcribe_local_empty_segments_returns_no_speech():

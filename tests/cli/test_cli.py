@@ -225,6 +225,7 @@ class TestCLISession:
             assert args[0] == "claude"
             assert "-p" in args
             assert "Hello" in args
+            assert "--dangerously-skip-permissions" not in args
 
             # Verify events
             assert (
@@ -237,6 +238,34 @@ class TestCLISession:
             assert events[3] == {"type": "exit", "code": 0, "stderr": None}
 
             assert session.current_session_id == "sess_1"
+
+    @pytest.mark.asyncio
+    async def test_start_task_skip_permissions_opt_in(self):
+        """The dangerous Claude CLI permission bypass is only added when enabled."""
+        from cli.session import CLISession
+
+        session = CLISession(
+            "/tmp",
+            "http://localhost:8082/v1",
+            skip_permissions=True,
+        )
+
+        mock_process = AsyncMock()
+        mock_process.stdout.read.side_effect = [b""]
+        mock_process.stderr.read.return_value = b""
+        mock_process.wait.return_value = 0
+        mock_process.returncode = 0
+
+        with patch(
+            "asyncio.create_subprocess_exec", new_callable=AsyncMock
+        ) as mock_exec:
+            mock_exec.return_value = mock_process
+
+            async for _ in session.start_task("Hello"):
+                pass
+
+            args = mock_exec.call_args[0]
+            assert "--dangerously-skip-permissions" in args
 
     @pytest.mark.asyncio
     async def test_start_task_with_session_resume(self):

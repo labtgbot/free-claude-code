@@ -38,6 +38,10 @@ class TestSettings:
         assert settings.http_read_timeout == 120.0
         assert settings.http_connect_timeout == HTTP_CONNECT_TIMEOUT_DEFAULT
         assert settings.enable_web_server_tools is False
+        assert settings.host == "127.0.0.1"
+        assert settings.port == 8082
+        assert settings.claude_cli_skip_permissions is False
+        assert settings.hf_model_revision == ""
         assert settings.log_raw_api_payloads is False
         assert settings.log_raw_sse_events is False
         assert settings.debug_platform_edits is False
@@ -113,6 +117,24 @@ class TestSettings:
         monkeypatch.setenv("PROVIDER_RATE_WINDOW", "30")
         settings = Settings()
         assert settings.provider_rate_window == 30
+
+    def test_server_host_and_port_from_env(self, monkeypatch):
+        """HOST and PORT env vars override loopback defaults explicitly."""
+        from config.settings import Settings
+
+        monkeypatch.setenv("HOST", "0.0.0.0")
+        monkeypatch.setenv("PORT", "9000")
+        settings = Settings()
+        assert settings.host == "0.0.0.0"
+        assert settings.port == 9000
+
+    def test_cli_skip_permissions_from_env(self, monkeypatch):
+        """CLAUDE_CLI_SKIP_PERMISSIONS is an explicit opt-in."""
+        from config.settings import Settings
+
+        monkeypatch.setenv("CLAUDE_CLI_SKIP_PERMISSIONS", "true")
+        settings = Settings()
+        assert settings.claude_cli_skip_permissions is True
 
     def test_http_read_timeout_from_env(self, monkeypatch):
         """HTTP_READ_TIMEOUT env var is loaded into settings."""
@@ -463,6 +485,14 @@ class TestSettingsOptionalStr:
         monkeypatch.setenv("WHISPER_DEVICE", device)
         s = Settings()
         assert s.whisper_device == device
+
+    def test_hf_model_revision_from_env(self, monkeypatch):
+        """HF_MODEL_REVISION is loaded for custom local Whisper models."""
+        from config.settings import Settings
+
+        monkeypatch.setenv("HF_MODEL_REVISION", "abc123")
+        s = Settings()
+        assert s.hf_model_revision == "abc123"
 
 
 class TestPerModelMapping:

@@ -29,6 +29,25 @@ async def test_register_real_session_id_moves_pending_to_active_and_maps():
 
 
 @pytest.mark.asyncio
+async def test_get_or_create_session_passes_skip_permissions_flag():
+    from cli.manager import CLISessionManager
+
+    with patch("cli.manager.CLISession") as mock_session_cls:
+        mock_session = MagicMock()
+        mock_session_cls.return_value = mock_session
+
+        manager = CLISessionManager(
+            workspace_path="/tmp",
+            api_url="http://x/v1",
+            skip_permissions=True,
+        )
+
+        await manager.get_or_create_session()
+
+        assert mock_session_cls.call_args.kwargs["skip_permissions"] is True
+
+
+@pytest.mark.asyncio
 async def test_register_real_session_id_missing_temp_id_returns_false():
     from cli.manager import CLISessionManager
 

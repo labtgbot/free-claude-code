@@ -274,6 +274,8 @@ class Settings(BaseSettings):
     whisper_model: str = Field(default="base", validation_alias="WHISPER_MODEL")
     # Hugging Face token for faster model downloads (optional, for local Whisper)
     hf_token: str = Field(default="", validation_alias="HF_TOKEN")
+    # Optional pinned Hugging Face revision for custom local Whisper models
+    hf_model_revision: str = Field(default="", validation_alias="HF_MODEL_REVISION")
 
     # ==================== Bot Wrapper Config ====================
     telegram_bot_token: str | None = None
@@ -287,13 +289,16 @@ class Settings(BaseSettings):
     claude_workspace: str = "./agent_workspace"
     allowed_dir: str = ""
     claude_cli_bin: str = Field(default="claude", validation_alias="CLAUDE_CLI_BIN")
+    claude_cli_skip_permissions: bool = Field(
+        default=False, validation_alias="CLAUDE_CLI_SKIP_PERMISSIONS"
+    )
     max_message_log_entries_per_chat: int | None = Field(
         default=None, validation_alias="MAX_MESSAGE_LOG_ENTRIES_PER_CHAT"
     )
 
     # ==================== Server ====================
-    host: str = "0.0.0.0"
-    port: int = 8082
+    host: str = Field(default="127.0.0.1", validation_alias="HOST")
+    port: int = Field(default=8082, validation_alias="PORT")
     log_file: str = "server.log"
     # Optional server API key to protect endpoints (Anthropic-style)
     # Set via env `ANTHROPIC_AUTH_TOKEN`. When empty, no auth is required.

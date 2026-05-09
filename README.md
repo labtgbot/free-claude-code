@@ -79,15 +79,15 @@ Edit `.env` and choose one provider. For the default NVIDIA NIM path:
 ```dotenv
 NVIDIA_NIM_API_KEY="nvapi-your-key"
 MODEL="nvidia_nim/z-ai/glm4.7"
-ANTHROPIC_AUTH_TOKEN="freecc"
+ANTHROPIC_AUTH_TOKEN="<random-local-secret>"
 ```
 
-Use any local secret for `ANTHROPIC_AUTH_TOKEN`; Claude Code will send the same value back to this proxy. Leave it empty only for local/private testing.
+Use a unique local secret for `ANTHROPIC_AUTH_TOKEN`; Claude Code will send the same value back to this proxy. Generate one with a tool such as `openssl rand -hex 32`, and leave it empty only for trusted loopback-only testing.
 
 ### 3. Start The Proxy
 
 ```bash
-uv run uvicorn server:app --host 0.0.0.0 --port 8082
+uv run uvicorn server:app --host 127.0.0.1 --port 8082
 ```
 
 Package install alternative:
@@ -98,7 +98,9 @@ fcc-init
 free-claude-code
 ```
 
-`fcc-init` creates `~/.config/free-claude-code/.env` from the bundled template.
+`fcc-init` creates `~/.config/free-claude-code/.env` from the bundled template and writes a fresh random `ANTHROPIC_AUTH_TOKEN`.
+
+Bind to `0.0.0.0` only when the proxy must be reachable from another host, and keep `ANTHROPIC_AUTH_TOKEN` set to a strong secret in that case.
 
 ### 4. Run Claude Code
 
@@ -107,13 +109,13 @@ Point `ANTHROPIC_BASE_URL` at the proxy root. Do not append `/v1`. Set `CLAUDE_C
 PowerShell:
 
 ```powershell
-$env:ANTHROPIC_AUTH_TOKEN="freecc"; $env:ANTHROPIC_BASE_URL="http://localhost:8082"; $env:CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY="1"; claude
+$env:ANTHROPIC_AUTH_TOKEN="<same-secret-from-.env>"; $env:ANTHROPIC_BASE_URL="http://localhost:8082"; $env:CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY="1"; claude
 ```
 
 Bash:
 
 ```bash
-ANTHROPIC_AUTH_TOKEN="freecc" ANTHROPIC_BASE_URL="http://localhost:8082" CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1 claude
+ANTHROPIC_AUTH_TOKEN="<same-secret-from-.env>" ANTHROPIC_BASE_URL="http://localhost:8082" CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1 claude
 ```
 
 ## Choose A Provider
@@ -294,7 +296,7 @@ MODEL="wafer/DeepSeek-V4-Pro"
 ### Claude Code CLI
 
 ```bash
-ANTHROPIC_AUTH_TOKEN="freecc" ANTHROPIC_BASE_URL="http://localhost:8082" CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1 claude
+ANTHROPIC_AUTH_TOKEN="<same-secret-from-.env>" ANTHROPIC_BASE_URL="http://localhost:8082" CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1 claude
 ```
 
 ### VS Code Extension
@@ -304,7 +306,7 @@ Open Settings, search for `claude-code.environmentVariables`, choose **Edit in s
 ```json
 "claudeCode.environmentVariables": [
   { "name": "ANTHROPIC_BASE_URL", "value": "http://localhost:8082" },
-  { "name": "ANTHROPIC_AUTH_TOKEN", "value": "freecc" },
+  { "name": "ANTHROPIC_AUTH_TOKEN", "value": "<same-secret-from-.env>" },
   { "name": "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY", "value": "1" }
 ]
 ```
@@ -323,7 +325,7 @@ Set the environment for `acp.registry.claude-acp`:
 ```json
 "env": {
   "ANTHROPIC_BASE_URL": "http://localhost:8082",
-  "ANTHROPIC_AUTH_TOKEN": "freecc",
+  "ANTHROPIC_AUTH_TOKEN": "<same-secret-from-.env>",
   "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1"
 }
 ```
@@ -374,6 +376,8 @@ ALLOWED_DIR="C:/Users/yourname/projects"
 
 Get a token from [@BotFather](https://t.me/BotFather) and your user ID from [@userinfobot](https://t.me/userinfobot).
 
+Set `CLAUDE_CLI_SKIP_PERMISSIONS=true` only for an isolated workspace where Claude Code may run tools without interactive permission prompts.
+
 Useful commands:
 
 - `/stop` cancels a task; reply to a task message to stop only that branch.
@@ -395,9 +399,10 @@ VOICE_NOTE_ENABLED=true
 WHISPER_DEVICE="cpu"          # cpu | cuda | nvidia_nim
 WHISPER_MODEL="base"
 HF_TOKEN=""
+HF_MODEL_REVISION=""          # required for custom Hugging Face local models
 ```
 
-Use `WHISPER_DEVICE="nvidia_nim"` with the `voice` extra and `NVIDIA_NIM_API_KEY` for NVIDIA-hosted transcription.
+Built-in short local model names are pinned to immutable Hugging Face revisions. Use `HF_MODEL_REVISION` when `WHISPER_MODEL` is a custom Hugging Face model ID. Use `WHISPER_DEVICE="nvidia_nim"` with the `voice` extra and `NVIDIA_NIM_API_KEY` for NVIDIA-hosted transcription.
 
 ## Configuration Reference
 
@@ -456,7 +461,9 @@ Use lower limits for free hosted providers; local providers can usually tolerate
 ### Security And Diagnostics
 
 ```dotenv
-ANTHROPIC_AUTH_TOKEN=
+HOST="127.0.0.1"
+PORT=8082
+ANTHROPIC_AUTH_TOKEN="<random-local-secret>"
 LOG_RAW_API_PAYLOADS=false
 LOG_RAW_SSE_EVENTS=false
 LOG_API_ERROR_TRACEBACKS=false

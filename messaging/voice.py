@@ -50,9 +50,11 @@ class VoiceTranscriptionService:
         self,
         *,
         hf_token: str = "",
+        hf_model_revision: str = "",
         nvidia_nim_api_key: str = "",
     ) -> None:
         self._hf_token = hf_token
+        self._hf_model_revision = hf_model_revision
         self._nvidia_nim_api_key = nvidia_nim_api_key
 
     async def transcribe(
@@ -72,5 +74,6 @@ class VoiceTranscriptionService:
             whisper_model=whisper_model,
             whisper_device=whisper_device,
             hf_token=self._hf_token,
+            hf_model_revision=self._hf_model_revision,
             nvidia_nim_api_key=self._nvidia_nim_api_key,
         )

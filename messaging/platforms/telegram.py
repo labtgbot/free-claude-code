@@ -67,6 +67,7 @@ class TelegramPlatform(MessagingPlatform):
         whisper_model: str = "base",
         whisper_device: str = "cpu",
         hf_token: str = "",
+        hf_model_revision: str = "",
         nvidia_nim_api_key: str = "",
         messaging_rate_limit: int = 1,
         messaging_rate_window: float = 1.0,
@@ -96,6 +97,7 @@ class TelegramPlatform(MessagingPlatform):
         self._pending_voice = PendingVoiceRegistry()
         self._voice_transcription = VoiceTranscriptionService(
             hf_token=hf_token,
+            hf_model_revision=hf_model_revision,
             nvidia_nim_api_key=nvidia_nim_api_key,
         )
         self._voice_note_enabled = voice_note_enabled
