@@ -328,6 +328,11 @@ class GlobalRateLimiter:
                 delay += random.uniform(0, jitter)
                 if retry_after is not None:
                     delay = max(delay, retry_after)
+                elif status == 429:
+                    # When the upstream omits Retry-After on a rate limit, wait
+                    # at least one full proactive window so the next attempt
+                    # lines up with fresh upstream capacity.
+                    delay = max(delay, self._rate_window)
                 attempt_no = attempt + 1
                 retry_after_detail = (
                     "" if retry_after is None else f" (Retry-After {retry_after:.1f}s)"

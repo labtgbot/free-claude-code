@@ -193,7 +193,7 @@ def test_serve_supervisor_restarts_when_app_requests_restart() -> None:
         entrypoints.serve()
 
     assert len(servers) == 2
-    assert all(server.config.kwargs["access_log"] is False for server in servers)
+    assert all(server.config.kwargs["access_log"] is True for server in servers)
     get_settings.cache_clear.assert_called_once()
     kill_all.assert_called_once()
 
