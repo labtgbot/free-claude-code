@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import AsyncIterator, Iterator
 from typing import Any, Literal
 
@@ -21,6 +22,7 @@ from core.anthropic.native_sse_block_policy import (
     NativeSseBlockPolicyState,
     transform_native_sse_block_event,
 )
+from core.trace import provider_native_messages_body_snapshot, trace_event
 from providers.base import BaseProvider, ProviderConfig
 from providers.error_mapping import (
     map_error,
@@ -35,6 +37,16 @@ from providers.model_listing import (
 from providers.rate_limit import GlobalRateLimiter
 
 StreamChunkMode = Literal["line", "event"]
+
+
+async def _maybe_await_aclose(response: Any) -> None:
+    """Call ``aclose`` on httpx-like responses; ignore non-async test doubles."""
+    close = getattr(response, "aclose", None)
+    if not callable(close):
+        return
+    result = close()
+    if inspect.isawaitable(result):
+        await result
 
 
 def _model_list_json(response: httpx.Response, *, provider_name: str) -> Any:
@@ -95,7 +107,7 @@ class AnthropicMessagesTransport(BaseProvider):
             payload = _model_list_json(response, provider_name=self._provider_name)
             return self._extract_model_infos_from_model_list_payload(payload)
         finally:
-            await response.aclose()
+            await _maybe_await_aclose(response)
 
     async def _send_model_list_request(self) -> httpx.Response:
         """Query the provider endpoint that advertises available model ids."""
@@ -338,13 +350,16 @@ class AnthropicMessagesTransport(BaseProvider):
         body = self._build_request_body(request, thinking_enabled=thinking_enabled)
         thinking_enabled = self._is_thinking_enabled(request, thinking_enabled)
 
-        logger.info(
-            "{}_STREAM:{} natively passing Anthropic request model={} msgs={} tools={}",
-            tag,
-            req_tag,
-            body.get("model"),
-            len(body.get("messages", [])),
-            len(body.get("tools", [])),
+        trace_event(
+            stage="provider",
+            event="provider.request.sent",
+            source="provider",
+            provider=self._provider_name,
+            gateway_model=request.model,
+            downstream_model=body.get("model"),
+            message_count=len(body.get("messages", [])),
+            tool_count=len(body.get("tools", [])),
+            body=provider_native_messages_body_snapshot(body),
         )
 
         response: httpx.Response | None = None
@@ -356,45 +371,62 @@ class AnthropicMessagesTransport(BaseProvider):
             try:
 
                 async def _validated_stream_send() -> httpx.Response:
-                    """Send request; raise inside retry loop on 429 so rate limiter can backoff."""
+                    """Send request; retries apply to 429/5xx raises after structured logging."""
                     send_response = await self._send_stream_request(body)
-                    if send_response.status_code == 429:
-                        await send_response.aclose()
-                        send_response.raise_for_status()
                     if send_response.status_code != 200:
                         try:
                             await self._raise_for_status(send_response, req_tag=req_tag)
                         finally:
                             if not send_response.is_closed:
-                                await send_response.aclose()
+                                await _maybe_await_aclose(send_response)
                     return send_response
 
                 response = await self._global_rate_limiter.execute_with_retry(
                     _validated_stream_send
                 )
 
+                chunk_count = 0
+                chunk_bytes = 0
+
                 async for chunk in self._iter_stream_chunks(
                     response,
                     state=state,
                     thinking_enabled=thinking_enabled,
                 ):
+                    chunk_count += 1
+                    chunk_bytes += len(chunk.encode("utf-8", errors="replace"))
                     sent_any_event = True
                     emitted_tracker.feed(chunk)
                     yield chunk
 
+                trace_event(
+                    stage="provider",
+                    event="provider.response.completed",
+                    source="provider",
+                    provider=self._provider_name,
+                    gateway_model=request.model,
+                    sse_chunks_out=chunk_count,
+                    sse_bytes_out=chunk_bytes,
+                )
+
             except Exception as error:
                 if not isinstance(error, httpx.HTTPStatusError):
-                    self._log_stream_transport_error(tag, req_tag, error)
+                    self._log_stream_transport_error(
+                        tag, req_tag, error, request_id=request_id
+                    )
                 error_message = self._get_error_message(error, request_id)
 
                 if response is not None and not response.is_closed:
-                    await response.aclose()
+                    await _maybe_await_aclose(response)
 
-                logger.info(
-                    "{}_STREAM: Emitting native SSE error event for {}{}",
-                    tag,
-                    type(error).__name__,
-                    req_tag,
+                trace_event(
+                    stage="provider",
+                    event="provider.response.error",
+                    source="provider",
+                    provider=self._provider_name,
+                    error_message=error_message,
+                    exc_type=type(error).__name__,
+                    mid_stream=sent_any_event,
                 )
                 if sent_any_event:
                     for event in emitted_tracker.iter_close_unclosed_blocks():
@@ -417,4 +449,4 @@ class AnthropicMessagesTransport(BaseProvider):
                 return
             finally:
                 if response is not None and not response.is_closed:
-                    await response.aclose()
+                    await _maybe_await_aclose(response)

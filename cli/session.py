@@ -9,7 +9,9 @@ from typing import Any
 
 from loguru import logger
 
-from .process_registry import register_pid, unregister_pid
+from core.trace import trace_event
+
+from .process_registry import kill_pid_tree_best_effort, register_pid, unregister_pid
 
 # Cap stderr capture so a runaway child cannot exhaust memory; pipe is still drained.
 _MAX_STDERR_CAPTURE_BYTES = 256 * 1024
@@ -24,6 +26,7 @@ class ClaudeCliConfig:
     allowed_dirs: list[str] = field(default_factory=list)
     plans_directory: str | None = None
     claude_bin: str = "claude"
+    auth_token: str = ""
     skip_permissions: bool = False
 
 
@@ -37,6 +40,7 @@ class CLISession:
         allowed_dirs: list[str] | None = None,
         plans_directory: str | None = None,
         claude_bin: str = "claude",
+        auth_token: str = "",
         *,
         skip_permissions: bool = False,
         log_raw_cli_diagnostics: bool = False,
@@ -47,6 +51,7 @@ class CLISession:
             allowed_dirs=[os.path.normpath(d) for d in (allowed_dirs or [])],
             plans_directory=plans_directory,
             claude_bin=claude_bin,
+            auth_token=auth_token,
             skip_permissions=skip_permissions,
         )
         self.workspace = self.config.workspace_path
@@ -54,6 +59,7 @@ class CLISession:
         self.allowed_dirs = self.config.allowed_dirs
         self.plans_directory = self.config.plans_directory
         self.claude_bin = self.config.claude_bin
+        self.auth_token = self.config.auth_token
         self.skip_permissions = self.config.skip_permissions
         self._log_raw_cli_diagnostics = log_raw_cli_diagnostics
         self.process: asyncio.subprocess.Process | None = None
@@ -111,14 +117,17 @@ class CLISession:
             self._is_busy = True
             env = os.environ.copy()
 
-            if "ANTHROPIC_API_KEY" not in env:
-                env["ANTHROPIC_API_KEY"] = "sk-placeholder-key-for-proxy"
-
             env["ANTHROPIC_API_URL"] = self.api_url
             if self.api_url.endswith("/v1"):
                 env["ANTHROPIC_BASE_URL"] = self.api_url[:-3]
             else:
                 env["ANTHROPIC_BASE_URL"] = self.api_url
+            env["CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"] = "1"
+            env.pop("ANTHROPIC_API_KEY", None)
+            if token := self.auth_token.strip():
+                env["ANTHROPIC_AUTH_TOKEN"] = token
+            else:
+                env.pop("ANTHROPIC_AUTH_TOKEN", None)
 
             env["TERM"] = "dumb"
             env["PYTHONIOENCODING"] = "utf-8"
@@ -162,6 +171,22 @@ class CLISession:
             if self.plans_directory is not None:
                 settings_json = json.dumps({"plansDirectory": self.plans_directory})
                 cmd.extend(["--settings", settings_json])
+
+            trace_event(
+                stage="claude_cli",
+                event="claude_cli.process.launch",
+                source="claude_cli",
+                resume_session_id=(
+                    session_id
+                    if session_id and not session_id.startswith("pending_")
+                    else None
+                ),
+                fork_session=fork_session,
+                prompt=prompt,
+                cwd=self.workspace,
+                claude_binary=self.claude_bin,
+                cli_argv=cmd,
+            )
 
             try:
                 self.process = await asyncio.create_subprocess_exec(
@@ -315,7 +340,7 @@ class CLISession:
         if self.process and self.process.returncode is None:
             try:
                 logger.info(f"Stopping Claude CLI process {self.process.pid}")
-                self.process.terminate()
+                kill_pid_tree_best_effort(self.process.pid)
                 try:
                     await asyncio.wait_for(self.process.wait(), timeout=5.0)
                 except TimeoutError:

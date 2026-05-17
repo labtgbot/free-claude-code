@@ -1,7 +1,7 @@
 """Loguru-based structured logging configuration.
 
-All logs are written to server.log as JSON lines for full traceability.
-Stdlib logging is intercepted and funneled to loguru.
+Structured logs are written as JSON lines to a configurable path (default
+``logs/server.log``). Stdlib logging is intercepted and funneled to loguru.
 Context vars (request_id, node_id, chat_id) from contextualize() are
 included at top level for easy grep/filter.
 """
@@ -9,14 +9,26 @@ included at top level for easy grep/filter.
 import json
 import logging
 import re
+import threading
 from pathlib import Path
 
 from loguru import logger
 
 _configured = False
 
-# Context keys we promote to top-level JSON for traceability
-_CONTEXT_KEYS = ("request_id", "node_id", "chat_id")
+# Loguru ``logger.bind()`` key used by structured TRACE payloads; ``core/trace.py``
+# uses the identical string constant ``TRACE_PAYLOAD_BINDING``.
+_TRACE_PAYLOAD_BINDING = "trace_payload"
+
+# Context keys we promote to top-level JSON for traceability / grep
+_CONTEXT_KEYS = (
+    "request_id",
+    "node_id",
+    "chat_id",
+    "claude_session_id",
+    "http_method",
+    "http_path",
+)
 
 _TELEGRAM_BOT_RE = re.compile(
     r"(https?://api\.telegram\.org/)bot([0-9]+:[A-Za-z0-9_-]+)(/?)",
@@ -48,9 +60,16 @@ def _serialize_with_context(record) -> str:
         "function": record["function"],
         "line": record["line"],
     }
+    trace_payload = extra.get(_TRACE_PAYLOAD_BINDING)
     for key in _CONTEXT_KEYS:
         if key in extra and extra[key] is not None:
             out[key] = extra[key]
+    if isinstance(trace_payload, dict):
+        for tk, tv in trace_payload.items():
+            if tk in out:
+                continue
+            out[tk] = tv
+        out["trace"] = True
     record["_json"] = json.dumps(out, default=str)
     return "{_json}\n"
 
@@ -58,24 +77,35 @@ def _serialize_with_context(record) -> str:
 class InterceptHandler(logging.Handler):
     """Redirect stdlib logging to loguru."""
 
+    def __init__(self) -> None:
+        super().__init__()
+        self._local = threading.local()
+
     def emit(self, record: logging.LogRecord) -> None:
+        if getattr(self._local, "active", False):
+            # Avoid deadlock when nested stdlib records fire during a loguru emit.
+            return
+        self._local.active = True
         try:
-            level = logger.level(record.levelname).name
-        except ValueError:
-            level = record.levelno
+            try:
+                level = logger.level(record.levelname).name
+            except ValueError:
+                level = record.levelno
 
-        frame, depth = logging.currentframe(), 2
-        while frame is not None and frame.f_code.co_filename == logging.__file__:
-            frame = frame.f_back
-            depth += 1
+            frame, depth = logging.currentframe(), 2
+            while frame is not None and frame.f_code.co_filename == logging.__file__:
+                frame = frame.f_back
+                depth += 1
 
-        logger.opt(depth=depth, exception=record.exc_info).log(
-            level, record.getMessage()
-        )
+            logger.opt(depth=depth, exception=record.exc_info).log(
+                level, record.getMessage()
+            )
+        finally:
+            self._local.active = False
 
 
 def configure_logging(
-    log_file: str, *, force: bool = False, verbose_third_party: bool = False
+    log_file: str | Path, *, force: bool = False, verbose_third_party: bool = False
 ) -> None:
     """Configure loguru with JSON output to log_file and intercept stdlib logging.
 
@@ -93,8 +123,11 @@ def configure_logging(
     # Remove default loguru handler (writes to stderr)
     logger.remove()
 
+    log_path = Path(log_file)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
     # Truncate log file on fresh start for clean debugging
-    Path(log_file).write_text("")
+    log_path.write_text("")
 
     # Add file sink: JSON lines, DEBUG level, context vars at top level
     logger.add(
@@ -104,6 +137,7 @@ def configure_logging(
         encoding="utf-8",
         mode="a",
         rotation="50 MB",
+        enqueue=True,
     )
 
     # Intercept stdlib logging: route all root logger output to loguru

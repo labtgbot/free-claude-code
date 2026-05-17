@@ -14,12 +14,12 @@ Use Claude Code CLI, VS Code, JetBrains ACP, or chat bots through your own Anthr
 
 Free Claude Code routes Anthropic Messages API traffic from Claude Code to NVIDIA NIM, Kimi, Wafer, OpenRouter, DeepSeek, LM Studio, llama.cpp, or Ollama. It keeps Claude Code's client-side protocol stable while letting you choose free, paid, or local models.
 
-[Quick Start](#quick-start) · [Providers](#choose-a-provider) · [Clients](#connect-claude-code) · [Troubleshooting](#troubleshooting) · [Development](#development)
+[Quick Start](#quick-start) · [Providers](#choose-a-provider) · [Clients](#connect-claude-code) · [Configuration](#configuration-reference) · [Development](#development)
 
 </div>
 
 <div align="center">
-  <img src="pic.png" alt="Free Claude Code in action" width="700">
+  <img src="assets/pic.png" alt="Free Claude Code in action" width="700">
 </div>
 
 ## Star History
@@ -37,18 +37,26 @@ Free Claude Code routes Anthropic Messages API traffic from Claude Code to NVIDI
 ## What You Get
 
 - Drop-in proxy for Claude Code's Anthropic API calls.
-- Eight provider backends: NVIDIA NIM, Kimi, Wafer, OpenRouter, DeepSeek, LM Studio, llama.cpp, and Ollama.
+- Ten provider backends: NVIDIA NIM, Kimi, Wafer, OpenRouter, DeepSeek, LM Studio, llama.cpp, Ollama, OpenCode Zen, and Z.ai.
 - Per-model routing: send Opus, Sonnet, Haiku, and fallback traffic to different providers.
 - Native Claude Code `/model` picker support through the proxy's `/v1/models` endpoint (Claude Code must opt in to Gateway model discovery; see [Model Picker](#model-picker)).
 - Streaming, tool use, reasoning/thinking block handling, and local request optimizations.
 - Optional Discord or Telegram bot wrapper for remote coding sessions.
+- Optional Usage through the VSCode extension.
 - Optional voice-note transcription through local Whisper or NVIDIA NIM.
+- Local **Admin UI** at `/admin` to edit supported proxy settings, validate changes, and check providers (loopback access only).
 
 ## Quick Start
 
-### 1. Install Requirements
+### 1. Install the latest version of [Claude Code](https://code.claude.com/docs/en/overview)
 
-Install [Claude Code](https://github.com/anthropics/claude-code), then install `uv` and Python 3.14.
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+
+### 2. Install Runtime Requirements
+
+Install the latest version of [uv](https://docs.astral.sh/uv/getting-started/installation/) and Python 3.14.
 
 macOS/Linux:
 
@@ -66,89 +74,78 @@ uv self update
 uv python install 3.14
 ```
 
-### 2. Clone And Configure
+### 3. Get An NVIDIA NIM API Key
+
+Create a free NVIDIA NIM API key, then keep it ready for the Admin UI setup step.
+
+See [NVIDIA NIM provider setup](#nvidia-nim-provider).
+
+### 4. Install The Proxy
 
 ```bash
-git clone https://github.com/Alishahryar1/free-claude-code.git
-cd free-claude-code
-cp .env.example .env
+uv tool install --force git+https://github.com/Alishahryar1/free-claude-code.git
 ```
 
-Edit `.env` and choose one provider. For the default NVIDIA NIM path:
+Use the same command to update to the latest version.
 
-```dotenv
-NVIDIA_NIM_API_KEY="nvapi-your-key"
-MODEL="nvidia_nim/z-ai/glm4.7"
-ANTHROPIC_AUTH_TOKEN="<random-local-secret>"
-```
-
-Use a unique local secret for `ANTHROPIC_AUTH_TOKEN`; Claude Code will send the same value back to this proxy. Generate one with a tool such as `openssl rand -hex 32`, and leave it empty only for trusted loopback-only testing.
-
-### 3. Start The Proxy
+Optional file-based setup:
 
 ```bash
-uv run uvicorn server:app --host 127.0.0.1 --port 8082
-```
-
-Package install alternative:
-
-```bash
-uv tool install git+https://github.com/Alishahryar1/free-claude-code.git
 fcc-init
-free-claude-code
 ```
 
-`fcc-init` creates `~/.config/free-claude-code/.env` from the bundled template and writes a fresh random `ANTHROPIC_AUTH_TOKEN`.
+`fcc-init` creates `~/.fcc/.env` from the bundled template and writes a fresh random `ANTHROPIC_AUTH_TOKEN`. You can also configure the proxy from the Admin UI after startup.
 
-Bind to `0.0.0.0` only when the proxy must be reachable from another host, and keep `ANTHROPIC_AUTH_TOKEN` set to a strong secret in that case.
+Use a unique local secret for `ANTHROPIC_AUTH_TOKEN`; Claude Code sends the same value back to this proxy. Leave it empty only for trusted loopback-only testing.
 
-### 4. Run Claude Code
-
-Point `ANTHROPIC_BASE_URL` at the proxy root. Do not append `/v1`. Set `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1` if you use `/model` to list models from this proxy (see [Model Picker](#model-picker)).
-
-PowerShell:
-
-```powershell
-$env:ANTHROPIC_AUTH_TOKEN="<same-secret-from-.env>"; $env:ANTHROPIC_BASE_URL="http://localhost:8082"; $env:CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY="1"; claude
-```
-
-Bash:
+### 5. Start The Proxy
 
 ```bash
-ANTHROPIC_AUTH_TOKEN="<same-secret-from-.env>" ANTHROPIC_BASE_URL="http://localhost:8082" CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1 claude
+fcc-server
 ```
+
+After startup, the terminal prints the proxy and admin URLs:
+
+```text
+Server URL: http://127.0.0.1:8082
+Admin UI: http://127.0.0.1:8082/admin
+```
+
+Many terminals make these clickable. Use your configured `PORT` if it is not `8082`.
+
+By default the proxy binds to `127.0.0.1`. Bind to `0.0.0.0` only when the proxy must be reachable from another host, and keep `ANTHROPIC_AUTH_TOKEN` set to a strong secret in that case.
+
+### 6. Open The Admin UI And Configure NVIDIA NIM
+
+Open the **Admin UI** URL from the terminal output.
+
+<div align="center">
+  <img src="assets/admin-page.png" alt="Local admin UI for proxy settings" width="700">
+</div>
+
+Paste your NVIDIA NIM API key into `NVIDIA_NIM_API_KEY`, then click **Validate** and **Apply**.
+
+The default model is already set to `nvidia_nim/z-ai/glm4.7`. You can change it later from the same Admin UI.
+
+### 7. Run Claude Code
+
+```bash
+fcc-claude
+```
+
+`fcc-claude` reads the current configured port and auth token each time it starts, sets the Claude Code environment variables, and then launches the real `claude` command.
 
 ## Choose A Provider
 
-Model values use this format:
+Pick one provider, enter its key or local URL in the Admin UI, and set `MODEL` to a provider-prefixed model slug. `MODEL` is the fallback. `MODEL_OPUS`, `MODEL_SONNET`, and `MODEL_HAIKU` can override routing for Claude Code's model tiers.
 
-```text
-provider_id/model/name
-```
+<a id="nvidia-nim-provider"></a>
 
-`MODEL` is the fallback. `MODEL_OPUS`, `MODEL_SONNET`, and `MODEL_HAIKU` override routing for requests that Claude Code sends for those tiers.
-
-| Provider | Prefix | Transport | Key | Default base URL |
-| --- | --- | --- | --- | --- |
-| <img src="https://cdn.simpleicons.org/nvidia/76B900" alt="" width="18" height="18">&nbsp;NVIDIA NIM | `nvidia_nim/...` | OpenAI chat translation | `NVIDIA_NIM_API_KEY` | `https://integrate.api.nvidia.com/v1` |
-| <img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-avatar/avatars/kimi.webp" alt="" width="18" height="18">&nbsp;Kimi | `kimi/...` | OpenAI chat translation | `KIMI_API_KEY` | `https://api.moonshot.ai/v1` |
-| <img src="https://wafer.ai/favicon.ico" alt="" width="18" height="18">&nbsp;[Wafer](https://wafer.ai) | `wafer/...` | Anthropic Messages | `WAFER_API_KEY` | `https://pass.wafer.ai/v1` |
-| <img src="https://cdn.simpleicons.org/openrouter/6C47FF" alt="" width="18" height="18">&nbsp;OpenRouter | `open_router/...` | Anthropic Messages | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1` |
-| <img src="https://cdn.simpleicons.org/deepseek/4D6BFF" alt="" width="18" height="18">&nbsp;DeepSeek | `deepseek/...` | Anthropic Messages | `DEEPSEEK_API_KEY` | `https://api.deepseek.com/anthropic` |
-| <img src="https://github.com/lmstudio-ai.png?size=64" alt="" width="18" height="18">&nbsp;LM Studio | `lmstudio/...` | Anthropic Messages | none | `http://localhost:1234/v1` |
-| <img src="https://github.com/ggml-org.png?size=64" alt="" width="18" height="18">&nbsp;llama.cpp | `llamacpp/...` | Anthropic Messages | none | `http://localhost:8080/v1` |
-| <img src="https://github.com/ollama.png?size=64" alt="" width="18" height="18">&nbsp;Ollama | `ollama/...` | Anthropic Messages | none | `http://localhost:11434` |
-
-
-<details>
-<summary><img src="https://cdn.simpleicons.org/nvidia/76B900" alt="" width="18" height="18">&nbsp;<b>NVIDIA NIM</b></summary>
+### 1. [NVIDIA NIM](https://build.nvidia.com/)
 
 Get a key at [build.nvidia.com/settings/api-keys](https://build.nvidia.com/settings/api-keys).
 
-```dotenv
-NVIDIA_NIM_API_KEY="nvapi-your-key"
-MODEL="nvidia_nim/z-ai/glm4.7"
-```
+In the Admin UI, paste it into `NVIDIA_NIM_API_KEY`. The default `MODEL` is `nvidia_nim/z-ai/glm4.7`.
 
 Popular examples:
 
@@ -159,31 +156,17 @@ Popular examples:
 
 Browse models at [build.nvidia.com](https://build.nvidia.com/explore/discover).
 
-</details>
-
-<details>
-<summary><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-avatar/avatars/kimi.webp" alt="" width="18" height="18">&nbsp;<b>Kimi</b></summary>
+### 2. [Kimi](https://platform.moonshot.ai/)
 
 Get a key at [platform.moonshot.ai/console/api-keys](https://platform.moonshot.ai/console/api-keys).
 
-```dotenv
-KIMI_API_KEY="your-kimi-key"
-MODEL="kimi/kimi-k2.5"
-```
+In the Admin UI, paste it into `KIMI_API_KEY`, then set `MODEL` to a Kimi slug such as `kimi/kimi-k2.5`.
 
 Browse models at [platform.moonshot.ai](https://platform.moonshot.ai).
 
-</details>
+### 3. [Wafer](https://wafer.ai/)
 
-<details>
-<summary><img src="https://wafer.ai/favicon.ico" alt="" width="18" height="18">&nbsp;<b>Wafer</b></summary>
-
-Get a key from [wafer.ai](https://wafer.ai), then choose a model returned by Wafer Pass:
-
-```dotenv
-WAFER_API_KEY="your-wafer-key"
-MODEL="wafer/DeepSeek-V4-Pro"
-```
+Get a key from [wafer.ai](https://wafer.ai). In the Admin UI, paste it into `WAFER_API_KEY`, then set `MODEL` to a Wafer Pass model such as `wafer/DeepSeek-V4-Pro`.
 
 Popular examples:
 
@@ -194,66 +177,37 @@ Popular examples:
 
 This provider uses Wafer's Anthropic-compatible endpoint at `https://pass.wafer.ai/v1/messages`.
 
-</details>
-
-<details>
-<summary><img src="https://cdn.simpleicons.org/openrouter/6C47FF" alt="" width="18" height="18">&nbsp;<b>OpenRouter</b></summary>
+### 4. [OpenRouter](https://openrouter.ai/)
 
 Get a key at [openrouter.ai/keys](https://openrouter.ai/keys).
 
-```dotenv
-OPENROUTER_API_KEY="sk-or-your-key"
-MODEL="open_router/stepfun/step-3.5-flash:free"
-```
+In the Admin UI, paste it into `OPENROUTER_API_KEY`, then set `MODEL` to an OpenRouter slug such as `open_router/stepfun/step-3.5-flash:free`.
 
 Browse [all models](https://openrouter.ai/models) or [free models](https://openrouter.ai/collections/free-models).
 
-</details>
-
-<details>
-<summary><img src="https://cdn.simpleicons.org/deepseek/4D6BFF" alt="" width="18" height="18">&nbsp;<b>DeepSeek</b></summary>
+### 5. [DeepSeek](https://platform.deepseek.com/)
 
 Get a key at [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys).
 
-```dotenv
-DEEPSEEK_API_KEY="your-deepseek-key"
-MODEL="deepseek/deepseek-chat"
-```
+In the Admin UI, paste it into `DEEPSEEK_API_KEY`, then set `MODEL` to a DeepSeek slug such as `deepseek/deepseek-chat`.
 
 This provider uses DeepSeek's Anthropic-compatible endpoint, not the OpenAI chat-completions endpoint.
 
-</details>
+### 6. [LM Studio](https://lmstudio.ai/)
 
-<details>
-<summary><img src="https://github.com/lmstudio-ai.png?size=64" alt="" width="18" height="18">&nbsp;<b>LM Studio</b></summary>
+Start LM Studio's local server and load a model. In the Admin UI, keep or update `LM_STUDIO_BASE_URL`, then set `MODEL` to the model identifier shown by LM Studio, prefixed with `lmstudio/`.
 
-Start LM Studio's local server, load a model, then configure:
+Prefer models with tool-use support for Claude Code workflows.
 
-```dotenv
-LM_STUDIO_BASE_URL="http://localhost:1234/v1"
-MODEL="lmstudio/your-loaded-model"
-```
-
-Use the model identifier shown by LM Studio. Prefer models with tool-use support for Claude Code workflows.
-
-</details>
-
-<details>
-<summary><img src="https://github.com/ggml-org.png?size=64" alt="" width="18" height="18">&nbsp;<b>llama.cpp</b></summary>
+### 7. [llama.cpp](https://github.com/ggml-org/llama.cpp)
 
 Start `llama-server` with an Anthropic-compatible `/v1/messages` endpoint and enough context for Claude Code requests.
 
-```dotenv
-LLAMACPP_BASE_URL="http://localhost:8080/v1"
-MODEL="llamacpp/local-model"
-```
+In the Admin UI, keep or update `LLAMACPP_BASE_URL`, then set `MODEL` to the local model slug, prefixed with `llamacpp/`.
 
 For local coding models, context size matters. If llama.cpp returns HTTP 400 for normal Claude Code requests, increase `--ctx-size` and verify the model/server build supports the requested features.
 
-</details>
-
-<details>
-<summary><img src="https://github.com/ollama.png?size=64" alt="" width="18" height="18">&nbsp;<b>Ollama</b></summary>
+### 8. [Ollama](https://ollama.com/)
 
 Run Ollama and pull a model:
 
@@ -262,44 +216,63 @@ ollama pull llama3.1
 ollama serve
 ```
 
-Then configure the proxy. `OLLAMA_BASE_URL` is the Ollama server root; do not append `/v1`.
+In the Admin UI, keep or update `OLLAMA_BASE_URL`, then set `MODEL` to the same tag shown by `ollama list`, prefixed with `ollama/`.
 
-```dotenv
-OLLAMA_BASE_URL="http://localhost:11434"
-MODEL="ollama/llama3.1"
-```
+`OLLAMA_BASE_URL` is the Ollama server root; do not append `/v1`. Example model slugs include `ollama/llama3.1` and `ollama/llama3.1:8b`.
 
-Use the same tag shown by `ollama list`, for example `ollama/llama3.1:8b`.
+### 9. [OpenCode Zen](https://opencode.ai/)
 
-</details>
+Get an API key at [opencode.ai/auth](https://opencode.ai/auth).
 
-<details>
-<summary><b>Mix providers by model tier</b></summary>
+In the Admin UI, paste it into `OPENCODE_API_KEY`, then set `MODEL` to an OpenCode Zen model slug such as `opencode/gpt-5.3-codex`.
 
-Each tier can use a different provider:
+OpenCode Zen is a curated model gateway that provides access to models from Anthropic, OpenAI, Google, DeepSeek, and more through a single API key and OpenAI-compatible endpoint at `https://opencode.ai/zen/v1`.
 
-```dotenv
-NVIDIA_NIM_API_KEY="nvapi-your-key"
-OPENROUTER_API_KEY="sk-or-your-key"
-WAFER_API_KEY="your-wafer-key"
+Popular examples:
 
-MODEL_OPUS="nvidia_nim/moonshotai/kimi-k2.5"
-MODEL_SONNET="open_router/deepseek/deepseek-r1-0528:free"
-MODEL_HAIKU="lmstudio/unsloth/GLM-4.7-Flash-GGUF"
-MODEL="wafer/DeepSeek-V4-Pro"
-```
+- `opencode/gpt-5.3-codex`
+- `opencode/claude-sonnet-4`
+- `opencode/deepseek-v4-flash-free` (free)
+- `opencode/gemini-3-flash`
+- `opencode/big-pickle` (free)
+- `opencode/glm-5.1`
 
-</details>
+Browse available models at [opencode.ai](https://opencode.ai).
+
+### 10. [Z.ai](https://z.ai/)
+
+Get an API key at [Z.ai/manage-apikey/apikey-list](https://z.ai/manage-apikey/apikey-list).
+
+In the Admin UI, paste it into `ZAI_API_KEY`, then set `MODEL` to a Z.ai model slug such as `zai/glm-5.1`.
+
+Z.ai provides GLM models through the OpenAI-compatible Coding Plan endpoint at `https://api.z.ai/api/coding/paas/v4`.
+
+Popular examples:
+
+- `zai/glm-5.1`
+- `zai/glm-5-turbo`
+
+Browse models at [Z.ai](https://z.ai).
+
+### 11. Mix Providers By Model Tier
+
+Each model tier can use a different provider by setting `MODEL_OPUS`, `MODEL_SONNET`, and `MODEL_HAIKU` in the Admin UI. Leave a tier blank to inherit `MODEL`.
+
+For example, you can route Opus to `nvidia_nim/moonshotai/kimi-k2.5`, Sonnet to `open_router/deepseek/deepseek-r1-0528:free`, Haiku to `lmstudio/unsloth/GLM-4.7-Flash-GGUF`, and keep the fallback `MODEL` on `zai/glm-5.1`.
 
 ## Connect Claude Code
 
-### Claude Code CLI
+### 1. Claude Code CLI
+
+For terminal use, prefer the installed launcher:
 
 ```bash
-ANTHROPIC_AUTH_TOKEN="<same-secret-from-.env>" ANTHROPIC_BASE_URL="http://localhost:8082" CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1 claude
+fcc-claude
 ```
 
-### VS Code Extension
+Keep `fcc-server` running while you work. The Admin UI manages proxy config, restarts the server when runtime settings change, and `fcc-claude` reads the current Admin UI-managed port and auth token every time it starts.
+
+### 2. VS Code Extension
 
 Open Settings, search for `claude-code.environmentVariables`, choose **Edit in settings.json**, and add:
 
@@ -313,7 +286,7 @@ Open Settings, search for `claude-code.environmentVariables`, choose **Edit in s
 
 Reload the extension. If the extension shows a login screen, choose the Anthropic Console path once; the local proxy still handles model traffic after the environment variables are active.
 
-### JetBrains ACP
+### 3. JetBrains ACP
 
 Edit the installed Claude ACP config:
 
@@ -332,23 +305,15 @@ Set the environment for `acp.registry.claude-acp`:
 
 Restart the IDE after changing the file.
 
-### Model Picker
-
-Claude Code 2.1.126 or later can populate `/model` from this proxy's Gateway `/v1/models` response when `ANTHROPIC_BASE_URL` points here. In **2.1.126–2.1.128** that discovery was automatic; **newer releases** require **`CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`** in the same environment as `ANTHROPIC_*`. Omit the flag if you only set models via proxy config and never use `/model` discovery.
-
-Start Claude Code with that variable set (see [Quick Start](#4-run-claude-code)), run `/model`, and choose any discovered provider model.
+### 4. Model Picker
 
 <div align="center">
-  <img src="cc-model-picker.png" alt="Claude Code model picker showing gateway models" width="700">
+  <img src="assets/cc-model-picker.png" alt="Claude Code model picker showing gateway models" width="700">
 </div>
-
-The proxy lists models for configured provider keys and referenced local providers. Picker-safe IDs are routed back to the real provider/model automatically, so no `.env` edit or separate launcher script is needed after startup.
-
-Each provider model also has a `(no thinking)` picker variant. Use it when a model does not support Claude Code thinking or fails with adaptive-thinking requests. It routes to the same upstream model while asking Claude Code to send a non-thinking request.
 
 ## Optional Integrations
 
-### Discord And Telegram Bots
+### 1. Discord And Telegram Bots
 
 The bot wrapper runs Claude Code sessions remotely, streams progress, supports reply-based conversation branches, and can stop or clear tasks.
 
@@ -358,7 +323,7 @@ Discord minimum config:
 MESSAGING_PLATFORM="discord"
 DISCORD_BOT_TOKEN="your-discord-bot-token"
 ALLOWED_DISCORD_CHANNELS="123456789"
-CLAUDE_WORKSPACE="./agent_workspace"
+CLAUDE_WORKSPACE=
 ALLOWED_DIR="C:/Users/yourname/projects"
 ```
 
@@ -370,7 +335,7 @@ Telegram minimum config:
 MESSAGING_PLATFORM="telegram"
 TELEGRAM_BOT_TOKEN="123456789:ABC..."
 ALLOWED_TELEGRAM_USER_ID="your-user-id"
-CLAUDE_WORKSPACE="./agent_workspace"
+CLAUDE_WORKSPACE=
 ALLOWED_DIR="C:/Users/yourname/projects"
 ```
 
@@ -384,7 +349,7 @@ Useful commands:
 - `/clear` resets sessions; reply to clear one branch.
 - `/stats` shows session state.
 
-### Voice Notes
+### 2. Voice Notes
 
 Voice notes work on Discord and Telegram. Choose one backend:
 
@@ -408,7 +373,25 @@ Built-in short local model names are pinned to immutable Hugging Face revisions.
 
 [`.env.example`](.env.example) is the canonical list of variables. The sections below are the ones most users change.
 
-### Model Routing
+### 1. Manual `.env` Setup (Headless)
+
+Use this only if you prefer file-based config or are running headless. The Admin UI is easier for first setup.
+
+```bash
+cp .env.example .env
+```
+
+Example for NVIDIA NIM:
+
+```dotenv
+NVIDIA_NIM_API_KEY="nvapi-your-key"
+MODEL="nvidia_nim/z-ai/glm4.7"
+ANTHROPIC_AUTH_TOKEN="<random-local-secret>"
+```
+
+Config precedence is repo `.env`, then `~/.fcc/.env`, then `FCC_ENV_FILE` when set. Blank `CLAUDE_WORKSPACE` uses `~/.fcc/agent_workspace`. `ANTHROPIC_AUTH_TOKEN` can be any local secret; pass the same value to Claude Code.
+
+### 2. Model Routing
 
 ```dotenv
 MODEL="nvidia_nim/z-ai/glm4.7"
@@ -423,13 +406,15 @@ ENABLE_HAIKU_THINKING=
 
 Blank per-tier values inherit the fallback. Blank thinking overrides inherit `ENABLE_MODEL_THINKING`.
 
-### Provider Keys And URLs
+### 3. Provider Keys And URLs
 
 ```dotenv
 NVIDIA_NIM_API_KEY=""
 OPENROUTER_API_KEY=""
 DEEPSEEK_API_KEY=""
 WAFER_API_KEY=""
+OPENCODE_API_KEY=""
+ZAI_API_KEY=""
 LM_STUDIO_BASE_URL="http://localhost:1234/v1"
 LLAMACPP_BASE_URL="http://localhost:8080/v1"
 OLLAMA_BASE_URL="http://localhost:11434"
@@ -443,9 +428,11 @@ OPENROUTER_PROXY=""
 LMSTUDIO_PROXY=""
 LLAMACPP_PROXY=""
 WAFER_PROXY=""
+OPENCODE_PROXY=""
+ZAI_PROXY=""
 ```
 
-### Rate Limits And Timeouts
+### 4. Rate Limits And Timeouts
 
 ```dotenv
 PROVIDER_RATE_LIMIT=1
@@ -458,7 +445,7 @@ HTTP_CONNECT_TIMEOUT=10
 
 Use lower limits for free hosted providers; local providers can usually tolerate higher concurrency if the machine can handle it.
 
-### Security And Diagnostics
+### 5. Security And Diagnostics
 
 ```dotenv
 HOST="127.0.0.1"
@@ -474,7 +461,9 @@ LOG_MESSAGING_ERROR_DETAILS=false
 
 Raw logging flags can expose prompts, tool arguments, paths, and model output. Keep them off unless you are debugging locally.
 
-### Local Web Tools
+Structured TRACE rows append fields such as `"trace": true`, `stage`, `event`, and `source` and include conversation context needed to follow Claude Code flows end-to-end. Dictionary keys resembling credentials (for example `api_key` / `authorization` values nested in structured payloads) are redacted; arbitrary prose you type into prompts may still appear verbatim.
+
+### 6. Local Web Tools
 
 ```dotenv
 ENABLE_WEB_SERVER_TOOLS=true
@@ -484,65 +473,26 @@ WEB_FETCH_ALLOW_PRIVATE_NETWORKS=false
 
 These tools perform outbound HTTP from the proxy. Keep private-network access disabled unless you are in a controlled lab environment.
 
-## Troubleshooting
-
-### Claude Code says `undefined ... input_tokens`, `$.speed`, or malformed response
-
-Update to the latest commit first. Older versions could emit invalid usage metadata in streaming responses. Then check:
-
-- `ANTHROPIC_BASE_URL` is `http://localhost:8082`, not `http://localhost:8082/v1`.
-- The proxy is returning Server-Sent Events for `/v1/messages`.
-- `server.log` contains no upstream 400/500 response before the malformed-response error.
-
-### llama.cpp or LM Studio returns HTTP 400
-
-This usually means the local runtime rejected the Anthropic Messages request before the proxy could stream a model answer.
-
-Check:
-
-- The local server supports `POST /v1/messages`.
-- The model and runtime support the requested context length and tools.
-- llama.cpp was started with enough `--ctx-size` for Claude Code prompts.
-- The configured base URL includes `/v1` for LM Studio and llama.cpp.
-
-### Provider disconnects during streaming
-
-Errors like `incomplete chunked read`, `server disconnected`, or a peer closing the body usually come from the upstream provider or gateway. Reduce concurrency, raise timeouts, or retry later.
-
-### Tool calls work on one model but not another
-
-Tool support is model and provider dependent. Some OpenAI-compatible models emit malformed tool-call deltas, omit tool names, or return tool calls as plain text. Try another model or provider before assuming the proxy is broken.
-
-### The VS Code extension still shows a login screen
-
-Confirm the extension environment variables are set, then reload the extension or restart VS Code. The browser login flow may still appear once; the local proxy is used when `ANTHROPIC_BASE_URL` is active in the extension process.
-
 ## How It Works
 
-```text
-Claude Code CLI / IDE
-        |
-        | Anthropic Messages API
-        v
-Free Claude Code proxy (:8082)
-        |
-        | provider-specific request/stream adapter
-        v
-NIM / Kimi / Wafer / OpenRouter / DeepSeek / LM Studio / llama.cpp / Ollama
-```
+<div align="center">
+  <img src="assets/how-it-works.svg" alt="Free Claude Code request flow architecture" width="900">
+</div>
+
+Diagram source: [`assets/how-it-works.mmd`](assets/how-it-works.mmd).
 
 Important pieces:
 
 - FastAPI exposes Anthropic-compatible routes such as `/v1/messages`, `/v1/messages/count_tokens`, and `/v1/models`.
 - Model routing resolves the Claude model name to `MODEL_OPUS`, `MODEL_SONNET`, `MODEL_HAIKU`, or `MODEL`.
-- NIM uses OpenAI chat streaming translated into Anthropic SSE.
+- NIM, OpenCode Zen, Z.ai use OpenAI chat streaming translated into Anthropic SSE.
 - Wafer, OpenRouter, DeepSeek, LM Studio, llama.cpp, and Ollama use Anthropic Messages style transports.
 - The proxy normalizes thinking blocks, tool calls, token usage metadata, and provider errors into the shape Claude Code expects.
 - Request optimizations answer trivial Claude Code probes locally to save latency and quota.
 
 ## Development
 
-### Project Structure
+### 1. Project Structure
 
 ```text
 free-claude-code/
@@ -556,7 +506,17 @@ free-claude-code/
 └── tests/                 # Unit and contract tests
 ```
 
-### Commands
+### 2. Run From Source
+
+Use this path if you are developing or want to run directly from a checkout:
+
+```bash
+git clone https://github.com/Alishahryar1/free-claude-code.git
+cd free-claude-code
+uv run uvicorn server:app --host 0.0.0.0 --port 8082
+```
+
+### 3. Commands
 
 ```bash
 uv run ruff format
@@ -567,14 +527,16 @@ uv run pytest
 
 Run them in that order before pushing. CI enforces the same checks.
 
-### Package Scripts
+### 4. Package Scripts
 
 `pyproject.toml` installs:
 
-- `free-claude-code`: starts the proxy with configured host and port.
-- `fcc-init`: creates the user config template at `~/.config/free-claude-code/.env`.
+- `fcc-server`: starts the proxy with configured host and port.
+- `fcc-init`: optional file-based config scaffold at `~/.fcc/.env`.
+- `fcc-claude`: launches Claude Code with the configured local proxy URL, auth token, and model discovery flag.
+- `free-claude-code`: compatibility alias for `fcc-server`.
 
-### Extending
+### 5. Extending
 
 - Add OpenAI-compatible providers by extending `OpenAIChatTransport`.
 - Add Anthropic Messages providers by extending `AnthropicMessagesTransport`.
@@ -588,7 +550,7 @@ Run them in that order before pushing. CI enforces the same checks.
 - Do not open Docker integration PRs.
 - Do not open README change PRs just open an issue for it.
 - Run the full check sequence before opening a pull request.
-- The syntax Except X, Y is brought back in python 3.14 final version (not in 3.14 alpha). Keep in mind before opening PRs.
+- The syntax `except X, Y` is brought back in python 3.14 final version (not in 3.14 alpha). Keep in mind before opening PRs.
 
 ## License
 

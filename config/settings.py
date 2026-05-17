@@ -13,6 +13,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .constants import HTTP_CONNECT_TIMEOUT_DEFAULT
 from .nim import NimSettings
+from .paths import default_claude_workspace_path, managed_env_path
 from .provider_ids import SUPPORTED_PROVIDER_IDS
 
 
@@ -29,8 +30,8 @@ class ConfiguredChatModelRef:
 def _env_files() -> tuple[Path, ...]:
     """Return env file paths in priority order (later overrides earlier)."""
     files: list[Path] = [
-        Path.home() / ".config" / "free-claude-code" / ".env",
         Path(".env"),
+        managed_env_path(),
     ]
     if explicit := os.environ.get("FCC_ENV_FILE"):
         files.append(Path(explicit))
@@ -118,6 +119,16 @@ class Settings(BaseSettings):
     # ==================== Wafer Config ====================
     wafer_api_key: str = Field(default="", validation_alias="WAFER_API_KEY")
 
+    # ==================== OpenCode Zen Config ====================
+    opencode_api_key: str = Field(default="", validation_alias="OPENCODE_API_KEY")
+
+    # ==================== Z.ai Config ====================
+    zai_api_key: str = Field(default="", validation_alias="ZAI_API_KEY")
+    zai_base_url: str = Field(
+        default="https://api.z.ai/api/coding/paas/v4",
+        validation_alias="ZAI_BASE_URL",
+    )
+
     # ==================== Messaging Platform Selection ====================
     # Valid: "telegram" | "discord" | "none"
     messaging_platform: str = Field(
@@ -169,6 +180,8 @@ class Settings(BaseSettings):
     llamacpp_proxy: str = Field(default="", validation_alias="LLAMACPP_PROXY")
     kimi_proxy: str = Field(default="", validation_alias="KIMI_PROXY")
     wafer_proxy: str = Field(default="", validation_alias="WAFER_PROXY")
+    opencode_proxy: str = Field(default="", validation_alias="OPENCODE_PROXY")
+    zai_proxy: str = Field(default="", validation_alias="ZAI_PROXY")
 
     # ==================== Provider Rate Limiting ====================
     provider_rate_limit: int = Field(default=40, validation_alias="PROVIDER_RATE_LIMIT")
@@ -286,7 +299,10 @@ class Settings(BaseSettings):
     allowed_discord_channels: str | None = Field(
         default=None, validation_alias="ALLOWED_DISCORD_CHANNELS"
     )
-    claude_workspace: str = "./agent_workspace"
+    claude_workspace: str = Field(
+        default_factory=lambda: str(default_claude_workspace_path()),
+        validation_alias="CLAUDE_WORKSPACE",
+    )
     allowed_dir: str = ""
     claude_cli_bin: str = Field(default="claude", validation_alias="CLAUDE_CLI_BIN")
     claude_cli_skip_permissions: bool = Field(
@@ -299,7 +315,6 @@ class Settings(BaseSettings):
     # ==================== Server ====================
     host: str = Field(default="127.0.0.1", validation_alias="HOST")
     port: int = Field(default=8082, validation_alias="PORT")
-    log_file: str = "server.log"
     # Optional server API key to protect endpoints (Anthropic-style)
     # Set via env `ANTHROPIC_AUTH_TOKEN`. When empty, no auth is required.
     anthropic_auth_token: str = Field(
@@ -339,6 +354,13 @@ class Settings(BaseSettings):
     def parse_optional_log_cap(cls, v: Any) -> Any:
         if v == "" or v is None:
             return None
+        return v
+
+    @field_validator("claude_workspace", mode="before")
+    @classmethod
+    def default_blank_claude_workspace(cls, v: Any) -> Any:
+        if v == "" or v is None:
+            return str(default_claude_workspace_path())
         return v
 
     @field_validator("whisper_device")

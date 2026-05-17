@@ -87,7 +87,6 @@ def test_create_app_provider_error_handler_returns_anthropic_format():
         claude_workspace="./agent_workspace",
         host="127.0.0.1",
         port=8082,
-        log_file="server.log",
     )
     with (
         patch.object(api_app_mod, "get_settings", return_value=settings),
@@ -124,7 +123,6 @@ def test_create_app_provider_error_default_logs_exclude_provider_message():
         claude_workspace="./agent_workspace",
         host="127.0.0.1",
         port=8082,
-        log_file="server.log",
         log_api_error_tracebacks=False,
     )
     with (
@@ -162,7 +160,6 @@ def test_create_app_general_exception_handler_returns_500():
         claude_workspace="./agent_workspace",
         host="127.0.0.1",
         port=8082,
-        log_file="server.log",
     )
     with (
         patch.object(api_app_mod, "get_settings", return_value=settings),
@@ -199,7 +196,6 @@ def test_create_app_general_exception_default_logs_exclude_exception_message():
         claude_workspace="./agent_workspace",
         host="127.0.0.1",
         port=8082,
-        log_file="server.log",
         log_api_error_tracebacks=False,
     )
     with (
@@ -238,7 +234,6 @@ def test_app_lifespan_sets_state_and_cleans_up(tmp_path, messaging_enabled):
         claude_workspace=str(tmp_path / "data"),
         host="127.0.0.1",
         port=8082,
-        log_file=str(tmp_path / "server.log"),
     )
 
     fake_platform = MagicMock()
@@ -317,7 +312,6 @@ def test_app_lifespan_cleanup_continues_if_platform_stop_raises(tmp_path):
         claude_workspace=str(tmp_path / "data"),
         host="127.0.0.1",
         port=8082,
-        log_file=str(tmp_path / "server.log"),
     )
 
     fake_platform = MagicMock()
@@ -355,20 +349,19 @@ def test_app_lifespan_cleanup_continues_if_platform_stop_raises(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_runtime_startup_validation_blocks_messaging_and_cleans_up(tmp_path):
+async def test_runtime_startup_validation_failure_does_not_block_server(tmp_path):
     import api.runtime as api_runtime_mod
 
     settings = _app_settings(
-        messaging_platform="telegram",
-        telegram_bot_token="token",
-        allowed_telegram_user_id="123",
+        messaging_platform="none",
+        telegram_bot_token=None,
+        allowed_telegram_user_id=None,
         discord_bot_token=None,
         allowed_discord_channels=None,
         allowed_dir=str(tmp_path / "workspace"),
         claude_workspace=str(tmp_path / "data"),
         host="127.0.0.1",
         port=8082,
-        log_file=str(tmp_path / "server.log"),
     )
     app = FastAPI()
     runtime = api_runtime_mod.AppRuntime(
@@ -381,27 +374,29 @@ async def test_runtime_startup_validation_blocks_messaging_and_cleans_up(tmp_pat
     with (
         patch.object(ProviderRegistry, "validate_configured_models", new=validation),
         patch.object(ProviderRegistry, "cleanup", new=cleanup),
-        patch.object(api_runtime_mod.logger, "error") as log_error,
+        patch.object(api_runtime_mod.logger, "warning") as log_warning,
         patch(
-            "messaging.platforms.factory.create_messaging_platform"
+            "messaging.platforms.factory.create_messaging_platform",
+            return_value=None,
         ) as create_platform,
-        pytest.raises(ServiceUnavailableError, match="bad model"),
     ):
         await runtime.startup()
+        await runtime.shutdown()
 
     validation.assert_awaited_once_with(settings)
     cleanup.assert_awaited_once()
-    create_platform.assert_not_called()
+    create_platform.assert_called_once()
     logged = " ".join(
-        str(arg) for call in log_error.call_args_list for arg in call.args
+        str(arg) for call in log_warning.call_args_list for arg in call.args
     )
-    assert "Startup failed" in logged
+    assert "validation failed" in logged
     assert "bad model" in logged
     assert "Traceback" not in logged
+    assert app.state.startup_validation_error == "bad model"
 
 
 @pytest.mark.asyncio
-async def test_graceful_asgi_lifespan_failure_sends_no_traceback(tmp_path):
+async def test_graceful_asgi_lifespan_model_validation_failure_starts(tmp_path):
     import api.app as api_app_mod
 
     settings = _app_settings(
@@ -414,13 +409,16 @@ async def test_graceful_asgi_lifespan_failure_sends_no_traceback(tmp_path):
         claude_workspace=str(tmp_path / "data"),
         host="127.0.0.1",
         port=8082,
-        log_file=str(tmp_path / "server.log"),
     )
     app = api_app_mod.GracefulLifespanApp(FastAPI())
     sent: list[MutableMapping[str, Any]] = []
+    received = [
+        {"type": "lifespan.startup"},
+        {"type": "lifespan.shutdown"},
+    ]
 
     async def receive() -> MutableMapping[str, Any]:
-        return {"type": "lifespan.startup"}
+        return received.pop(0)
 
     async def send(message: MutableMapping[str, Any]) -> None:
         sent.append(message)
@@ -434,7 +432,10 @@ async def test_graceful_asgi_lifespan_failure_sends_no_traceback(tmp_path):
     ):
         await app({"type": "lifespan"}, receive, send)
 
-    assert sent == [{"type": "lifespan.startup.failed", "message": "bad model"}]
+    assert sent == [
+        {"type": "lifespan.startup.complete"},
+        {"type": "lifespan.shutdown.complete"},
+    ]
 
 
 def test_app_lifespan_messaging_import_error_no_crash(tmp_path, caplog):
@@ -453,7 +454,6 @@ def test_app_lifespan_messaging_import_error_no_crash(tmp_path, caplog):
         claude_workspace=str(tmp_path / "data"),
         host="127.0.0.1",
         port=8082,
-        log_file=str(tmp_path / "server.log"),
     )
 
     api_app_mod = importlib.import_module("api.app")
@@ -489,7 +489,6 @@ def test_app_lifespan_platform_start_exception_cleanup_still_runs(tmp_path):
         claude_workspace=str(tmp_path / "data"),
         host="127.0.0.1",
         port=8082,
-        log_file=str(tmp_path / "server.log"),
     )
 
     fake_platform = MagicMock()
@@ -540,7 +539,6 @@ def test_app_lifespan_flush_pending_save_exception_warning_only(tmp_path):
         claude_workspace=str(tmp_path / "data"),
         host="127.0.0.1",
         port=8082,
-        log_file=str(tmp_path / "server.log"),
     )
 
     fake_platform = MagicMock()
@@ -575,3 +573,29 @@ def test_app_lifespan_flush_pending_save_exception_warning_only(tmp_path):
 
     session_store.flush_pending_save.assert_called_once()
     registry_cleanup.assert_awaited_once()
+
+
+def test_create_app_writes_server_log_under_fcc_home(monkeypatch, tmp_path):
+    """App logging uses ~/.fcc/logs/server.log regardless of cwd."""
+    from loguru import logger
+
+    import config.logging_config as logging_config_mod
+    from api.app import create_app
+    from config.paths import server_log_path
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    monkeypatch.chdir(run_dir)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setattr(logging_config_mod, "_configured", False)
+
+    create_app(lifespan_enabled=False)
+    logger.info("canonical log path test")
+    logger.complete()
+
+    canonical_log = server_log_path()
+    assert canonical_log == tmp_path / ".fcc" / "logs" / "server.log"
+    assert canonical_log.is_file()
+    assert "canonical log path test" in canonical_log.read_text(encoding="utf-8")
+    assert not (run_dir / "logs" / "server.log").exists()

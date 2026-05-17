@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI
 from loguru import logger
 
+from api.admin_urls import local_admin_url, local_proxy_root_url
 from config.settings import Settings, get_settings
 from providers.exceptions import ServiceUnavailableError
 from providers.registry import ProviderRegistry
@@ -100,14 +102,23 @@ class AppRuntime:
 
     async def startup(self) -> None:
         logger.info("Starting Claude Code Proxy...")
+        root_url = local_proxy_root_url(self.settings)
+        admin_url = local_admin_url(self.settings)
         self._provider_registry = ProviderRegistry()
         self.app.state.provider_registry = self._provider_registry
         try:
             warn_if_process_auth_token(self.settings)
-            await self._provider_registry.validate_configured_models(self.settings)
+            await self._validate_configured_models_best_effort()
             self._provider_registry.start_model_list_refresh(self.settings)
             await self._start_messaging_if_configured()
             self._publish_state()
+            logger.info("Server URL: {}", root_url)
+            logger.info("Admin UI: {} (local-only)", admin_url)
+            print(
+                f"Server URL: {root_url}\nAdmin UI: {admin_url} (local-only)",
+                file=sys.stderr,
+                flush=True,
+            )
         except Exception as exc:
             log_startup_failure(self.settings, exc)
             await best_effort(
@@ -116,6 +127,21 @@ class AppRuntime:
                 log_verbose_errors=self.settings.log_api_error_tracebacks,
             )
             raise
+
+    async def _validate_configured_models_best_effort(self) -> None:
+        """Warm validation status without blocking first-run/admin access."""
+        if self._provider_registry is None:
+            return
+        try:
+            await self._provider_registry.validate_configured_models(self.settings)
+        except ServiceUnavailableError as exc:
+            self.app.state.startup_validation_error = exc.message
+            logger.warning(
+                "Configured provider model validation failed during startup; "
+                "server will continue and requests will fail at provider resolution "
+                "when config is incomplete. {}",
+                exc.message,
+            )
 
     async def shutdown(self) -> None:
         verbose = self.settings.log_api_error_tracebacks
@@ -230,6 +256,7 @@ class AppRuntime:
             allowed_dirs=allowed_dirs,
             plans_directory=plans_directory,
             claude_bin=self.settings.claude_cli_bin,
+            auth_token=getattr(self.settings, "anthropic_auth_token", ""),
             skip_permissions=self.settings.claude_cli_skip_permissions,
             log_raw_cli_diagnostics=self.settings.log_raw_cli_diagnostics,
             log_messaging_error_details=self.settings.log_messaging_error_details,

@@ -12,8 +12,35 @@ import openai
 from loguru import logger
 
 from core.rate_limit import StrictSlidingWindowLimiter
+from core.trace import trace_event
 
 T = TypeVar("T")
+
+
+def _upstream_http_retryable(code: int) -> bool:
+    """True for rate limit / upstream server failures that should backoff-retry."""
+    return code == 429 or 500 <= code <= 599
+
+
+def retryable_upstream_status(exc: BaseException) -> int | None:
+    """Return HTTP-like status codes that qualify for reactive backoff retries.
+
+    ``429`` plus any upstream ``5xx`` use the same exponential backoff and scoped
+    limiter blocking semantics as today's rate-limit path.
+    """
+    if isinstance(exc, openai.RateLimitError):
+        return 429
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        if _upstream_http_retryable(status):
+            return status
+        return None
+    if isinstance(exc, openai.APIError):
+        status = getattr(exc, "status_code", None)
+        if isinstance(status, int) and 500 <= status <= 599:
+            return status
+        return None
+    return None
 
 
 class GlobalRateLimiter:
@@ -26,7 +53,7 @@ class GlobalRateLimiter:
     may be open simultaneously, independent of the sliding window.
 
     Proactive limits - throttles requests to stay within API limits.
-    Reactive limits - pauses all requests when a 429 is hit.
+    Reactive limits - pauses all requests when a 429 or 5xx retry backoff is active.
     Concurrency limit - caps simultaneously open streams.
     """
 
@@ -129,7 +156,7 @@ class GlobalRateLimiter:
         Returns:
             True if was reactively blocked and waited, False otherwise.
         """
-        # 1. Reactive check: Wait if someone hit a 429
+        # 1. Reactive check: Wait if someone hit a reactive backoff (429/5xx retries)
         waited_reactively = False
         now = time.monotonic()
         if now < self._blocked_until:
@@ -203,10 +230,11 @@ class GlobalRateLimiter:
         jitter: float = 1.0,
         **kwargs: Any,
     ) -> Any:
-        """Execute an async callable with rate limiting and retry on 429.
+        """Execute an async callable with rate limiting and retry on transient limits.
 
-        Waits for the proactive limiter before each attempt. On 429, applies
-        exponential backoff with jitter before retrying.
+        Waits for the proactive limiter before each attempt. On ``429`` (rate limit)
+        or upstream ``5xx`` server errors, applies exponential backoff with jitter
+        and sets the reactive block before retrying.
 
         Args:
             fn: Async callable to execute.
@@ -222,43 +250,51 @@ class GlobalRateLimiter:
             The last exception if all retries are exhausted.
         """
         last_exc: Exception | None = None
+        total_attempts = 1 + max_retries
 
-        for attempt in range(1 + max_retries):
+        for attempt in range(total_attempts):
             await self.wait_if_blocked()
 
             try:
                 return await fn(*args, **kwargs)
-            except openai.RateLimitError as e:
-                last_exc = e
-                if attempt >= max_retries:
-                    logger.warning(
-                        f"Rate limit retry exhausted after {max_retries} retries"
-                    )
-                    break
-
-                delay = min(base_delay * (2**attempt), max_delay)
-                delay += random.uniform(0, jitter)
-                logger.warning(
-                    f"Rate limited (429), attempt {attempt + 1}/{max_retries + 1}. "
-                    f"Retrying in {delay:.1f}s..."
-                )
-                self.set_blocked(delay)
-                await asyncio.sleep(delay)
-            except httpx.HTTPStatusError as e:
-                if e.response.status_code != 429:
+            except Exception as e:
+                status = retryable_upstream_status(e)
+                if status is None:
                     raise
+
+                label = (
+                    "Rate limited (429)"
+                    if status == 429
+                    else f"Upstream server error ({status})"
+                )
                 last_exc = e
                 if attempt >= max_retries:
                     logger.warning(
-                        f"HTTP 429 retry exhausted after {max_retries} retries"
+                        "{} retry exhausted after {} retries (attempts={})",
+                        label,
+                        max_retries,
+                        total_attempts,
                     )
                     break
 
                 delay = min(base_delay * (2**attempt), max_delay)
                 delay += random.uniform(0, jitter)
+                attempt_no = attempt + 1
                 logger.warning(
-                    f"HTTP 429 from upstream, attempt {attempt + 1}/{max_retries + 1}. "
-                    f"Retrying in {delay:.1f}s..."
+                    "{}, attempt {}/{}. Retrying in {:.1f}s...",
+                    label,
+                    attempt_no,
+                    total_attempts,
+                    delay,
+                )
+                trace_event(
+                    stage="provider",
+                    event="provider.retry.scheduled",
+                    source="provider",
+                    status_code=status,
+                    attempt=attempt_no,
+                    max_attempts=total_attempts,
+                    delay_s=round(delay, 3),
                 )
                 self.set_blocked(delay)
                 await asyncio.sleep(delay)

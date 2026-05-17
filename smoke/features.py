@@ -72,11 +72,18 @@ FEATURE_INVENTORY: tuple[FeatureCoverage, ...] = (
         (
             "test_api_basic_conversation_e2e",
             "test_claude_cli_adaptive_thinking_e2e",
+            "test_nvidia_nim_cli_matrix_e2e",
+            "test_openrouter_free_cli_matrix_e2e",
             "test_vscode_protocol_e2e",
             "test_jetbrains_protocol_e2e",
         ),
-        ("api", "cli", "clients"),
-        ("configured provider", "FCC_SMOKE_CLAUDE_BIN for real Claude CLI"),
+        ("api", "cli", "clients", "nvidia_nim_cli", "openrouter_free_cli"),
+        (
+            "configured provider",
+            "FCC_SMOKE_CLAUDE_BIN for real Claude CLI",
+            "NVIDIA_NIM_API_KEY",
+            "OPENROUTER_API_KEY",
+        ),
         "skip real CLI when binary is absent; configured providers must pass",
     ),
     FeatureCoverage(
@@ -384,9 +391,16 @@ FEATURE_INVENTORY: tuple[FeatureCoverage, ...] = (
         (
             "test_claude_cli_adaptive_thinking_e2e",
             "test_claude_cli_multiturn_tool_protocol_e2e",
+            "test_nvidia_nim_cli_matrix_e2e",
+            "test_openrouter_free_cli_matrix_e2e",
         ),
-        ("cli",),
-        ("FCC_SMOKE_CLAUDE_BIN", "configured provider"),
+        ("cli", "nvidia_nim_cli", "openrouter_free_cli"),
+        (
+            "FCC_SMOKE_CLAUDE_BIN",
+            "configured provider",
+            "NVIDIA_NIM_API_KEY",
+            "OPENROUTER_API_KEY",
+        ),
         "skip only when Claude CLI binary is absent",
     ),
     FeatureCoverage(
