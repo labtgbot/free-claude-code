@@ -80,6 +80,7 @@ def _run_supervised_server(settings: Settings) -> bool:
         host=settings.host,
         port=settings.port,
         log_level="debug",
+        access_log=False,
         timeout_graceful_shutdown=SERVER_GRACEFUL_SHUTDOWN_SECONDS,
     )
     server = uvicorn.Server(config)

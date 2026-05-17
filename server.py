@@ -25,6 +25,7 @@ if __name__ == "__main__":
             host=settings.host,
             port=settings.port,
             log_level="debug",
+            access_log=False,
             timeout_graceful_shutdown=5,
         )
     finally:
