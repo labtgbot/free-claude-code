@@ -326,6 +326,50 @@ def test_claude_child_env_removes_blank_configured_auth_token() -> None:
     assert "ANTHROPIC_API_KEY" not in env
 
 
+def test_preflight_proxy_uses_local_http_connection() -> None:
+    from cli.entrypoints import PROXY_PREFLIGHT_TIMEOUT_SECONDS, _preflight_proxy
+
+    response = SimpleNamespace(status=204, read=MagicMock())
+    connection = MagicMock()
+    connection.getresponse.return_value = response
+
+    with patch("cli.entrypoints.HTTPConnection", return_value=connection) as http:
+        assert _preflight_proxy("http://127.0.0.1:9191") is None
+
+    http.assert_called_once_with(
+        "127.0.0.1",
+        9191,
+        timeout=PROXY_PREFLIGHT_TIMEOUT_SECONDS,
+    )
+    connection.request.assert_called_once_with("GET", "/health")
+    response.read.assert_called_once_with()
+    connection.close.assert_called_once_with()
+
+
+def test_preflight_proxy_reports_http_status() -> None:
+    from cli.entrypoints import _preflight_proxy
+
+    response = SimpleNamespace(status=503, read=MagicMock())
+    connection = MagicMock()
+    connection.getresponse.return_value = response
+
+    with patch("cli.entrypoints.HTTPConnection", return_value=connection):
+        assert _preflight_proxy("http://127.0.0.1:9191") == "returned HTTP 503"
+
+    connection.close.assert_called_once_with()
+
+
+def test_preflight_proxy_rejects_non_http_url_without_network_call() -> None:
+    from cli.entrypoints import _preflight_proxy
+
+    with patch("cli.entrypoints.HTTPConnection") as http:
+        assert _preflight_proxy("https://127.0.0.1:9191") == (
+            "unsupported proxy URL scheme 'https'"
+        )
+
+    http.assert_not_called()
+
+
 def test_launch_claude_passes_args_and_child_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

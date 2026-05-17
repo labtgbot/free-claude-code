@@ -8,9 +8,9 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
+from http.client import HTTPConnection, HTTPException
 from pathlib import Path
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.parse import urlsplit
 
 import uvicorn
 
@@ -173,16 +173,30 @@ def _preflight_proxy(proxy_root_url: str) -> str | None:
     """Return an error message when the local proxy health check is unreachable."""
 
     url = f"{proxy_root_url.rstrip('/')}{PROXY_PREFLIGHT_PATH}"
-    request = Request(url, method="GET")
+    parsed = urlsplit(url)
+    if parsed.scheme != "http":
+        return f"unsupported proxy URL scheme {parsed.scheme!r}"
+    if not parsed.hostname:
+        return "missing proxy URL host"
+
+    target = parsed.path or "/"
+    if parsed.query:
+        target = f"{target}?{parsed.query}"
+
+    connection = HTTPConnection(
+        parsed.hostname,
+        parsed.port or 80,
+        timeout=PROXY_PREFLIGHT_TIMEOUT_SECONDS,
+    )
     try:
-        with urlopen(request, timeout=PROXY_PREFLIGHT_TIMEOUT_SECONDS) as response:
-            status_code = response.getcode()
-    except HTTPError as exc:
-        return f"returned HTTP {exc.code}"
-    except URLError as exc:
-        return str(exc.reason)
-    except OSError as exc:
+        connection.request("GET", target)
+        response = connection.getresponse()
+        status_code = response.status
+        response.read()
+    except (HTTPException, OSError) as exc:
         return str(exc)
+    finally:
+        connection.close()
 
     if not 200 <= status_code < 300:
         return f"returned HTTP {status_code}"
