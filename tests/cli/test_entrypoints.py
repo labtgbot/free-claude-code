@@ -24,6 +24,25 @@ def _launcher_settings(
     )
 
 
+def _env_value(content: str, key: str) -> str | None:
+    prefix = f"{key}="
+    for line in content.splitlines():
+        if line.startswith(prefix):
+            return line.removeprefix(prefix).strip().strip("\"'")
+    return None
+
+
+def _env_with_auth_token(content: str, token: str) -> str:
+    prefix = "ANTHROPIC_AUTH_TOKEN="
+    lines = content.splitlines(keepends=True)
+    for index, line in enumerate(lines):
+        if line.startswith(prefix):
+            newline = "\n" if line.endswith("\n") else ""
+            lines[index] = f'ANTHROPIC_AUTH_TOKEN="{token}"{newline}'
+            return "".join(lines)
+    raise AssertionError("Template must define ANTHROPIC_AUTH_TOKEN")
+
+
 def _run_init(tmp_home: Path) -> tuple[str, Path]:
     """Run init() with home directory redirected to tmp_home. Returns (printed output, env_file path)."""
     from cli.entrypoints import init
@@ -53,13 +72,43 @@ def test_init_creates_env_file(tmp_path: Path) -> None:
 
 
 def test_init_copies_template_content(tmp_path: Path) -> None:
-    """init() writes the canonical root env.example content, not an empty file."""
+    """init() writes the canonical template with only the auth token generated."""
     template = (Path(__file__).resolve().parents[2] / ".env.example").read_text(
         encoding="utf-8"
     )
-    _, env_file = _run_init(tmp_path)
+    with patch("cli.entrypoints.secrets.token_urlsafe", return_value="generated-token"):
+        _, env_file = _run_init(tmp_path)
 
-    assert env_file.read_text("utf-8") == template
+    assert env_file.read_text("utf-8") == _env_with_auth_token(
+        template, "generated-token"
+    )
+
+
+def test_init_generates_unique_auth_token_by_default(tmp_path: Path) -> None:
+    """init() does not scaffold a shared public token into new configs."""
+    _, first_env_file = _run_init(tmp_path / "first")
+    _, second_env_file = _run_init(tmp_path / "second")
+
+    first_token = _env_value(first_env_file.read_text("utf-8"), "ANTHROPIC_AUTH_TOKEN")
+    second_token = _env_value(
+        second_env_file.read_text("utf-8"), "ANTHROPIC_AUTH_TOKEN"
+    )
+
+    assert first_token is not None
+    assert second_token is not None
+    assert first_token != ""
+    assert first_token != "freecc"
+    assert second_token != first_token
+    assert len(first_token) >= 32
+
+
+def test_env_example_does_not_ship_known_shared_auth_token() -> None:
+    """The checked-in template must not publish a reusable proxy auth token."""
+    template = (Path(__file__).resolve().parents[2] / ".env.example").read_text(
+        encoding="utf-8"
+    )
+
+    assert _env_value(template, "ANTHROPIC_AUTH_TOKEN") != "freecc"
 
 
 def test_init_migrates_home_checkout_env_before_template(tmp_path: Path) -> None:
@@ -275,6 +324,50 @@ def test_claude_child_env_removes_blank_configured_auth_token() -> None:
 
     assert "ANTHROPIC_AUTH_TOKEN" not in env
     assert "ANTHROPIC_API_KEY" not in env
+
+
+def test_preflight_proxy_uses_local_http_connection() -> None:
+    from cli.entrypoints import PROXY_PREFLIGHT_TIMEOUT_SECONDS, _preflight_proxy
+
+    response = SimpleNamespace(status=204, read=MagicMock())
+    connection = MagicMock()
+    connection.getresponse.return_value = response
+
+    with patch("cli.entrypoints.HTTPConnection", return_value=connection) as http:
+        assert _preflight_proxy("http://127.0.0.1:9191") is None
+
+    http.assert_called_once_with(
+        "127.0.0.1",
+        9191,
+        timeout=PROXY_PREFLIGHT_TIMEOUT_SECONDS,
+    )
+    connection.request.assert_called_once_with("GET", "/health")
+    response.read.assert_called_once_with()
+    connection.close.assert_called_once_with()
+
+
+def test_preflight_proxy_reports_http_status() -> None:
+    from cli.entrypoints import _preflight_proxy
+
+    response = SimpleNamespace(status=503, read=MagicMock())
+    connection = MagicMock()
+    connection.getresponse.return_value = response
+
+    with patch("cli.entrypoints.HTTPConnection", return_value=connection):
+        assert _preflight_proxy("http://127.0.0.1:9191") == "returned HTTP 503"
+
+    connection.close.assert_called_once_with()
+
+
+def test_preflight_proxy_rejects_non_http_url_without_network_call() -> None:
+    from cli.entrypoints import _preflight_proxy
+
+    with patch("cli.entrypoints.HTTPConnection") as http:
+        assert _preflight_proxy("https://127.0.0.1:9191") == (
+            "unsupported proxy URL scheme 'https'"
+        )
+
+    http.assert_not_called()
 
 
 def test_launch_claude_passes_args_and_child_env(

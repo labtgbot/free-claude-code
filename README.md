@@ -88,6 +88,16 @@ uv tool install --force git+https://github.com/Alishahryar1/free-claude-code.git
 
 Use the same command to update to the latest version.
 
+Optional file-based setup:
+
+```bash
+fcc-init
+```
+
+`fcc-init` creates `~/.fcc/.env` from the bundled template and writes a fresh random `ANTHROPIC_AUTH_TOKEN`. You can also configure the proxy from the Admin UI after startup.
+
+Use a unique local secret for `ANTHROPIC_AUTH_TOKEN`; Claude Code sends the same value back to this proxy. Leave it empty only for trusted loopback-only testing.
+
 ### 5. Start The Proxy
 
 ```bash
@@ -102,6 +112,8 @@ Admin UI: http://127.0.0.1:8082/admin
 ```
 
 Many terminals make these clickable. Use your configured `PORT` if it is not `8082`.
+
+By default the proxy binds to `127.0.0.1`. Bind to `0.0.0.0` only when the proxy must be reachable from another host, and keep `ANTHROPIC_AUTH_TOKEN` set to a strong secret in that case.
 
 ### 6. Open The Admin UI And Configure NVIDIA NIM
 
@@ -267,7 +279,7 @@ Open Settings, search for `claude-code.environmentVariables`, choose **Edit in s
 ```json
 "claudeCode.environmentVariables": [
   { "name": "ANTHROPIC_BASE_URL", "value": "http://localhost:8082" },
-  { "name": "ANTHROPIC_AUTH_TOKEN", "value": "freecc" },
+  { "name": "ANTHROPIC_AUTH_TOKEN", "value": "<same-secret-from-.env>" },
   { "name": "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY", "value": "1" }
 ]
 ```
@@ -286,7 +298,7 @@ Set the environment for `acp.registry.claude-acp`:
 ```json
 "env": {
   "ANTHROPIC_BASE_URL": "http://localhost:8082",
-  "ANTHROPIC_AUTH_TOKEN": "freecc",
+  "ANTHROPIC_AUTH_TOKEN": "<same-secret-from-.env>",
   "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1"
 }
 ```
@@ -329,6 +341,8 @@ ALLOWED_DIR="C:/Users/yourname/projects"
 
 Get a token from [@BotFather](https://t.me/BotFather) and your user ID from [@userinfobot](https://t.me/userinfobot).
 
+Set `CLAUDE_CLI_SKIP_PERMISSIONS=true` only for an isolated workspace where Claude Code may run tools without interactive permission prompts.
+
 Useful commands:
 
 - `/stop` cancels a task; reply to a task message to stop only that branch.
@@ -350,9 +364,10 @@ VOICE_NOTE_ENABLED=true
 WHISPER_DEVICE="cpu"          # cpu | cuda | nvidia_nim
 WHISPER_MODEL="base"
 HF_TOKEN=""
+HF_MODEL_REVISION=""          # required for custom Hugging Face local models
 ```
 
-Use `WHISPER_DEVICE="nvidia_nim"` with the `voice` extra and `NVIDIA_NIM_API_KEY` for NVIDIA-hosted transcription.
+Built-in short local model names are pinned to immutable Hugging Face revisions. Use `HF_MODEL_REVISION` when `WHISPER_MODEL` is a custom Hugging Face model ID. Use `WHISPER_DEVICE="nvidia_nim"` with the `voice` extra and `NVIDIA_NIM_API_KEY` for NVIDIA-hosted transcription.
 
 ## Configuration Reference
 
@@ -371,7 +386,7 @@ Example for NVIDIA NIM:
 ```dotenv
 NVIDIA_NIM_API_KEY="nvapi-your-key"
 MODEL="nvidia_nim/z-ai/glm4.7"
-ANTHROPIC_AUTH_TOKEN="freecc"
+ANTHROPIC_AUTH_TOKEN="<random-local-secret>"
 ```
 
 Config precedence is repo `.env`, then `~/.fcc/.env`, then `FCC_ENV_FILE` when set. Blank `CLAUDE_WORKSPACE` uses `~/.fcc/agent_workspace`. `ANTHROPIC_AUTH_TOKEN` can be any local secret; pass the same value to Claude Code.
@@ -433,7 +448,9 @@ Use lower limits for free hosted providers; local providers can usually tolerate
 ### 5. Security And Diagnostics
 
 ```dotenv
-ANTHROPIC_AUTH_TOKEN=
+HOST="127.0.0.1"
+PORT=8082
+ANTHROPIC_AUTH_TOKEN="<random-local-secret>"
 LOG_RAW_API_PAYLOADS=false
 LOG_RAW_SSE_EVENTS=false
 LOG_API_ERROR_TRACEBACKS=false

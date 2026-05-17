@@ -197,6 +197,7 @@ class AppRuntime:
                     whisper_model=self.settings.whisper_model,
                     whisper_device=self.settings.whisper_device,
                     hf_token=self.settings.hf_token,
+                    hf_model_revision=self.settings.hf_model_revision,
                     nvidia_nim_api_key=self.settings.nvidia_nim_api_key,
                     messaging_rate_limit=self.settings.messaging_rate_limit,
                     messaging_rate_window=self.settings.messaging_rate_window,
@@ -256,6 +257,7 @@ class AppRuntime:
             plans_directory=plans_directory,
             claude_bin=self.settings.claude_cli_bin,
             auth_token=getattr(self.settings, "anthropic_auth_token", ""),
+            skip_permissions=self.settings.claude_cli_skip_permissions,
             log_raw_cli_diagnostics=self.settings.log_raw_cli_diagnostics,
             log_messaging_error_details=self.settings.log_messaging_error_details,
         )

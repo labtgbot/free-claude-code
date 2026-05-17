@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ipaddress
+
 from config.settings import Settings
 
 
@@ -9,7 +11,13 @@ def _browser_host_for_local_urls(settings: Settings) -> str:
     """Host fragment for URLs shown to humans on the same machine as the server."""
 
     host = settings.host.strip() if settings.host else "127.0.0.1"
-    if host in {"0.0.0.0", "::", "[::]"}:
+    normalized = host[1:-1] if host.startswith("[") and host.endswith("]") else host
+    try:
+        if ipaddress.ip_address(normalized).is_unspecified:
+            host = "127.0.0.1"
+    except ValueError:
+        pass
+    if host.lower() == "localhost":
         host = "127.0.0.1"
     if ":" in host and not host.startswith("["):
         host = f"[{host}]"

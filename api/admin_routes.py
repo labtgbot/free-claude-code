@@ -237,7 +237,7 @@ def _next_admin_url() -> str:
         field["key"]: field["value"] for field in load_config_response()["fields"]
     }
     settings = Settings.model_construct(
-        host=fields.get("HOST") or "0.0.0.0",
+        host=fields.get("HOST") or "127.0.0.1",
         port=int(fields.get("PORT") or 8082),
     )
     return local_admin_url(settings)

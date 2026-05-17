@@ -344,7 +344,6 @@ FIELDS: tuple[ConfigFieldSpec, ...] = (
         "runtime",
         "secret",
         settings_attr="anthropic_auth_token",
-        default="freecc",
         secret=True,
         description="Protects Claude/API access. It is not admin-page login.",
     ),
@@ -401,7 +400,7 @@ FIELDS: tuple[ConfigFieldSpec, ...] = (
         "Server Host",
         "runtime",
         settings_attr="host",
-        default="0.0.0.0",
+        default="127.0.0.1",
         restart_required=True,
     ),
     ConfigFieldSpec(
@@ -498,6 +497,16 @@ FIELDS: tuple[ConfigFieldSpec, ...] = (
         session_sensitive=True,
     ),
     ConfigFieldSpec(
+        "CLAUDE_CLI_SKIP_PERMISSIONS",
+        "Skip Claude CLI Permissions",
+        "messaging",
+        "boolean",
+        settings_attr="claude_cli_skip_permissions",
+        default="false",
+        session_sensitive=True,
+        description="Adds --dangerously-skip-permissions only when explicitly enabled.",
+    ),
+    ConfigFieldSpec(
         "MAX_MESSAGE_LOG_ENTRIES_PER_CHAT",
         "Max Message Log Entries",
         "messaging",
@@ -541,6 +550,14 @@ FIELDS: tuple[ConfigFieldSpec, ...] = (
         settings_attr="hf_token",
         secret=True,
         session_sensitive=True,
+    ),
+    ConfigFieldSpec(
+        "HF_MODEL_REVISION",
+        "Hugging Face Model Revision",
+        "voice",
+        settings_attr="hf_model_revision",
+        session_sensitive=True,
+        description="Required for custom Hugging Face local Whisper models.",
     ),
     ConfigFieldSpec(
         "FAST_PREFIX_DETECTION",

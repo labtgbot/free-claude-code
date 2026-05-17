@@ -27,6 +27,7 @@ class ClaudeCliConfig:
     plans_directory: str | None = None
     claude_bin: str = "claude"
     auth_token: str = ""
+    skip_permissions: bool = False
 
 
 class CLISession:
@@ -41,6 +42,7 @@ class CLISession:
         claude_bin: str = "claude",
         auth_token: str = "",
         *,
+        skip_permissions: bool = False,
         log_raw_cli_diagnostics: bool = False,
     ):
         self.config = ClaudeCliConfig(
@@ -50,6 +52,7 @@ class CLISession:
             plans_directory=plans_directory,
             claude_bin=claude_bin,
             auth_token=auth_token,
+            skip_permissions=skip_permissions,
         )
         self.workspace = self.config.workspace_path
         self.api_url = self.config.api_url
@@ -57,6 +60,7 @@ class CLISession:
         self.plans_directory = self.config.plans_directory
         self.claude_bin = self.config.claude_bin
         self.auth_token = self.config.auth_token
+        self.skip_permissions = self.config.skip_permissions
         self._log_raw_cli_diagnostics = log_raw_cli_diagnostics
         self.process: asyncio.subprocess.Process | None = None
         self.current_session_id: str | None = None
@@ -142,9 +146,11 @@ class CLISession:
                     prompt,
                     "--output-format",
                     "stream-json",
-                    "--dangerously-skip-permissions",
                     "--verbose",
                 ]
+                if self.skip_permissions:
+                    cmd.insert(-1, "--dangerously-skip-permissions")
+                logger.info(f"Resuming Claude session {session_id}")
             else:
                 cmd = [
                     self.claude_bin,
@@ -152,9 +158,11 @@ class CLISession:
                     prompt,
                     "--output-format",
                     "stream-json",
-                    "--dangerously-skip-permissions",
                     "--verbose",
                 ]
+                if self.skip_permissions:
+                    cmd.insert(-1, "--dangerously-skip-permissions")
+                logger.info("Starting new Claude session")
 
             if self.allowed_dirs:
                 for d in self.allowed_dirs:

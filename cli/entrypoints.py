@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import os
+import secrets
 import shutil
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
+from http.client import HTTPConnection, HTTPException
 from pathlib import Path
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.parse import urlsplit
 
 import uvicorn
 
@@ -28,6 +29,9 @@ PROXY_PREFLIGHT_PATH = "/health"
 PROXY_PREFLIGHT_TIMEOUT_SECONDS = 1.5
 SERVER_GRACEFUL_SHUTDOWN_SECONDS = 5
 
+_AUTH_TOKEN_ENV = "ANTHROPIC_AUTH_TOKEN"
+_AUTH_TOKEN_BYTES = 32
+
 
 def _load_env_template() -> str:
     """Load the canonical root env template from package resources or source."""
@@ -42,6 +46,22 @@ def _load_env_template() -> str:
         return source_template.read_text(encoding="utf-8")
 
     raise FileNotFoundError("Could not find bundled or source .env.example template.")
+
+
+def _with_generated_auth_token(template: str) -> str:
+    """Return an env file template with a fresh proxy auth token."""
+    token_line = f'{_AUTH_TOKEN_ENV}="{secrets.token_urlsafe(_AUTH_TOKEN_BYTES)}"'
+    prefix = f"{_AUTH_TOKEN_ENV}="
+    lines = template.splitlines(keepends=True)
+    for index, line in enumerate(lines):
+        if line.startswith(prefix):
+            stripped = line.rstrip("\r\n")
+            line_ending = line[len(stripped) :]
+            lines[index] = f"{token_line}{line_ending}"
+            return "".join(lines)
+
+    suffix = "" if template.endswith("\n") or not template else "\n"
+    return f"{template}{suffix}{token_line}\n"
 
 
 def serve() -> None:
@@ -108,7 +128,7 @@ def init() -> None:
 
     config_dir.mkdir(parents=True, exist_ok=True)
     template = _load_env_template()
-    env_file.write_text(template, encoding="utf-8")
+    env_file.write_text(_with_generated_auth_token(template), encoding="utf-8")
     print(f"Config created at {env_file}")
     print("Edit it to set your API keys and model preferences, then run: fcc-server")
 
@@ -153,16 +173,30 @@ def _preflight_proxy(proxy_root_url: str) -> str | None:
     """Return an error message when the local proxy health check is unreachable."""
 
     url = f"{proxy_root_url.rstrip('/')}{PROXY_PREFLIGHT_PATH}"
-    request = Request(url, method="GET")
+    parsed = urlsplit(url)
+    if parsed.scheme != "http":
+        return f"unsupported proxy URL scheme {parsed.scheme!r}"
+    if not parsed.hostname:
+        return "missing proxy URL host"
+
+    target = parsed.path or "/"
+    if parsed.query:
+        target = f"{target}?{parsed.query}"
+
+    connection = HTTPConnection(
+        parsed.hostname,
+        parsed.port or 80,
+        timeout=PROXY_PREFLIGHT_TIMEOUT_SECONDS,
+    )
     try:
-        with urlopen(request, timeout=PROXY_PREFLIGHT_TIMEOUT_SECONDS) as response:
-            status_code = response.getcode()
-    except HTTPError as exc:
-        return f"returned HTTP {exc.code}"
-    except URLError as exc:
-        return str(exc.reason)
-    except OSError as exc:
+        connection.request("GET", target)
+        response = connection.getresponse()
+        status_code = response.status
+        response.read()
+    except (HTTPException, OSError) as exc:
         return str(exc)
+    finally:
+        connection.close()
 
     if not 200 <= status_code < 300:
         return f"returned HTTP {status_code}"

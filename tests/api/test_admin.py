@@ -6,7 +6,6 @@ from unittest.mock import patch
 import httpx
 from fastapi.testclient import TestClient
 
-from api.admin_config import MASKED_SECRET
 from api.admin_urls import local_admin_url
 from api.app import create_app
 from config.settings import Settings
@@ -32,6 +31,8 @@ def _clear_process_config(monkeypatch) -> None:
         "HOST",
         "PORT",
         "LOG_FILE",
+        "CLAUDE_CLI_SKIP_PERMISSIONS",
+        "HF_MODEL_REVISION",
     ):
         monkeypatch.delenv(key, raising=False)
 
@@ -56,14 +57,29 @@ def test_admin_config_masks_secrets_and_exposes_manifest(monkeypatch, tmp_path):
     body = response.json()
     keys = {field["key"] for field in body["fields"]}
     assert "ANTHROPIC_AUTH_TOKEN" in keys
+    assert "CLAUDE_CLI_SKIP_PERMISSIONS" in keys
+    assert "HF_MODEL_REVISION" in keys
     assert "OPENROUTER_API_KEY" in keys
     assert "LOG_FILE" not in keys
     auth_field = next(
         field for field in body["fields"] if field["key"] == "ANTHROPIC_AUTH_TOKEN"
     )
     assert auth_field["secret"] is True
-    assert auth_field["value"] == MASKED_SECRET
+    assert auth_field["configured"] is False
+    assert auth_field["value"] == ""
     assert auth_field["source"] == "template"
+    host_field = next(field for field in body["fields"] if field["key"] == "HOST")
+    assert host_field["value"] == "127.0.0.1"
+    skip_permissions_field = next(
+        field
+        for field in body["fields"]
+        if field["key"] == "CLAUDE_CLI_SKIP_PERMISSIONS"
+    )
+    assert skip_permissions_field["value"] == "false"
+    hf_revision_field = next(
+        field for field in body["fields"] if field["key"] == "HF_MODEL_REVISION"
+    )
+    assert hf_revision_field["value"] == ""
 
 
 def test_admin_validate_rejects_bad_model_shape(monkeypatch, tmp_path):

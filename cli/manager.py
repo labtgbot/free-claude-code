@@ -31,6 +31,7 @@ class CLISessionManager:
         claude_bin: str = "claude",
         auth_token: str = "",
         *,
+        skip_permissions: bool = False,
         log_raw_cli_diagnostics: bool = False,
         log_messaging_error_details: bool = False,
     ):
@@ -49,6 +50,7 @@ class CLISessionManager:
         self.plans_directory = plans_directory
         self.claude_bin = claude_bin
         self.auth_token = auth_token
+        self.skip_permissions = skip_permissions
         self._log_raw_cli_diagnostics = log_raw_cli_diagnostics
         self._log_messaging_error_details = log_messaging_error_details
 
@@ -85,6 +87,7 @@ class CLISessionManager:
                 plans_directory=self.plans_directory,
                 claude_bin=self.claude_bin,
                 auth_token=self.auth_token,
+                skip_permissions=self.skip_permissions,
                 log_raw_cli_diagnostics=self._log_raw_cli_diagnostics,
             )
             self._pending_sessions[temp_id] = new_session
