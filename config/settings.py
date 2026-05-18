@@ -124,10 +124,9 @@ class Settings(BaseSettings):
 
     # ==================== Z.ai Config ====================
     zai_api_key: str = Field(default="", validation_alias="ZAI_API_KEY")
-    zai_base_url: str = Field(
-        default="https://api.z.ai/api/coding/paas/v4",
-        validation_alias="ZAI_BASE_URL",
-    )
+
+    # ==================== Fireworks AI Config ====================
+    fireworks_api_key: str = Field(default="", validation_alias="FIREWORKS_API_KEY")
 
     # ==================== Messaging Platform Selection ====================
     # Valid: "telegram" | "discord" | "none"
@@ -182,6 +181,7 @@ class Settings(BaseSettings):
     wafer_proxy: str = Field(default="", validation_alias="WAFER_PROXY")
     opencode_proxy: str = Field(default="", validation_alias="OPENCODE_PROXY")
     zai_proxy: str = Field(default="", validation_alias="ZAI_PROXY")
+    fireworks_proxy: str = Field(default="", validation_alias="FIREWORKS_PROXY")
 
     # ==================== Provider Rate Limiting ====================
     provider_rate_limit: int = Field(default=40, validation_alias="PROVIDER_RATE_LIMIT")
@@ -297,12 +297,7 @@ class Settings(BaseSettings):
     allowed_discord_channels: str | None = Field(
         default=None, validation_alias="ALLOWED_DISCORD_CHANNELS"
     )
-    claude_workspace: str = Field(
-        default_factory=lambda: str(default_claude_workspace_path()),
-        validation_alias="CLAUDE_WORKSPACE",
-    )
     allowed_dir: str = ""
-    claude_cli_bin: str = Field(default="claude", validation_alias="CLAUDE_CLI_BIN")
     max_message_log_entries_per_chat: int | None = Field(
         default=None, validation_alias="MAX_MESSAGE_LOG_ENTRIES_PER_CHAT"
     )
@@ -351,12 +346,17 @@ class Settings(BaseSettings):
             return None
         return v
 
-    @field_validator("claude_workspace", mode="before")
-    @classmethod
-    def default_blank_claude_workspace(cls, v: Any) -> Any:
-        if v == "" or v is None:
-            return str(default_claude_workspace_path())
-        return v
+    @property
+    def claude_workspace(self) -> str:
+        """Return the fixed Claude data workspace path."""
+
+        return str(default_claude_workspace_path())
+
+    @property
+    def claude_cli_bin(self) -> str:
+        """Return the fixed Claude Code binary name."""
+
+        return "claude"
 
     @field_validator("whisper_device")
     @classmethod

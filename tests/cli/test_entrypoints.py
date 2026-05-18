@@ -15,13 +15,11 @@ def _launcher_settings(
     *,
     port: int = 8082,
     token: str = "freecc",
-    claude_bin: str = "claude-test",
 ) -> Settings:
     return Settings.model_construct(
         host="0.0.0.0",
         port=port,
         anthropic_auth_token=token,
-        claude_cli_bin=claude_bin,
     )
 
 
@@ -162,6 +160,54 @@ def test_cli_scripts_are_registered() -> None:
     assert scripts["fcc-claude"] == "cli.entrypoints:launch_claude"
 
 
+def test_schedule_open_admin_browser_opens_when_health_ready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Opening /admin runs after /health preflight succeeds."""
+    monkeypatch.delenv("FCC_OPEN_BROWSER", raising=False)
+    from api.admin_urls import local_admin_url
+    from cli import entrypoints
+
+    settings = _launcher_settings(port=31337)
+    opened_urls: list[str] = []
+
+    class ImmediateThread:
+        def __init__(self, target=None, **_kwargs: object) -> None:
+            self._target = target
+
+        def start(self) -> None:
+            assert self._target is not None
+            self._target()
+
+    with (
+        patch.object(entrypoints.threading, "Thread", ImmediateThread),
+        patch.object(entrypoints, "_preflight_proxy", return_value=None),
+        patch.object(
+            entrypoints.webbrowser,
+            "open",
+            side_effect=lambda url: opened_urls.append(url),
+        ),
+        patch.object(entrypoints.time, "sleep"),
+    ):
+        entrypoints._schedule_open_admin_browser(settings)
+
+    assert opened_urls == [local_admin_url(settings)]
+
+
+def test_schedule_open_admin_browser_skips_when_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FCC_OPEN_BROWSER", "0")
+    from cli import entrypoints
+
+    settings = _launcher_settings()
+
+    with patch.object(entrypoints.threading, "Thread") as thread_cls:
+        entrypoints._schedule_open_admin_browser(settings)
+
+    thread_cls.assert_not_called()
+
+
 def test_serve_supervisor_restarts_when_app_requests_restart() -> None:
     from cli import entrypoints
 
@@ -188,6 +234,7 @@ def test_serve_supervisor_restarts_when_app_requests_restart() -> None:
         patch.object(entrypoints, "get_settings", get_settings),
         patch.object(entrypoints.uvicorn, "Config", side_effect=fake_config),
         patch.object(entrypoints.uvicorn, "Server", side_effect=FakeServer),
+        patch.object(entrypoints, "_schedule_open_admin_browser"),
         patch.object(entrypoints, "kill_all_best_effort") as kill_all,
     ):
         entrypoints.serve()
@@ -261,6 +308,7 @@ def test_claude_child_env_targets_current_proxy_config() -> None:
     assert env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:9090"
     assert env["ANTHROPIC_AUTH_TOKEN"] == "proxy-token"
     assert env["CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"] == "1"
+    assert env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] == "190000"
     assert "ANTHROPIC_API_KEY" not in env
 
 
@@ -310,6 +358,7 @@ def test_launch_claude_passes_args_and_child_env(
     assert child_env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:9191"
     assert child_env["ANTHROPIC_AUTH_TOKEN"] == "proxy-token"
     assert child_env["CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"] == "1"
+    assert child_env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] == "190000"
     assert child_env["KEEP_ME"] == "yes"
     register_pid.assert_called_once_with(12345)
     unregister_pid.assert_called_once_with(12345)
@@ -345,7 +394,7 @@ def test_launch_claude_exits_when_command_cannot_be_resolved(
 ) -> None:
     from cli.entrypoints import launch_claude
 
-    settings = _launcher_settings(claude_bin="claude-missing")
+    settings = _launcher_settings()
     with (
         patch("cli.entrypoints.get_settings", return_value=settings),
         patch("cli.entrypoints._preflight_proxy", return_value=None),
@@ -358,7 +407,7 @@ def test_launch_claude_exits_when_command_cannot_be_resolved(
     assert exc_info.value.code == 127
     popen.assert_not_called()
     captured = capsys.readouterr()
-    assert "Could not find Claude Code command: claude-missing" in captured.err
+    assert "Could not find Claude Code command: claude" in captured.err
     assert "npm install -g @anthropic-ai/claude-code" in captured.err
 
 
