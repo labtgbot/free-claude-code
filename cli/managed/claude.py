@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -10,6 +12,10 @@ from typing import Any
 from loguru import logger
 
 from cli.claude_env import CLAUDE_CODE_AUTO_COMPACT_WINDOW, claude_auth_token
+
+_CLAUDE_INSTALL_HINT = (
+    "Install Claude Code with: npm install -g @anthropic-ai/claude-code"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +57,23 @@ class ManagedClaudeParseState:
     session_id_extracted: bool = False
 
 
+def managed_claude_command_not_found_message(claude_bin: str) -> str:
+    return (
+        f"Could not find Claude Code command: {claude_bin}. "
+        f"{_CLAUDE_INSTALL_HINT}, or set CLAUDE_CLI_BIN to the full path."
+    )
+
+
+def resolve_managed_claude_command(claude_bin: str) -> str:
+    """Resolve Windows npm command shims while preserving POSIX argv behavior."""
+    resolved = shutil.which(claude_bin)
+    if resolved is None:
+        return claude_bin
+    if os.name == "nt":
+        return resolved
+    return claude_bin
+
+
 def build_managed_claude_invocation(
     *,
     config: ManagedClaudeConfig,
@@ -59,8 +82,9 @@ def build_managed_claude_invocation(
 ) -> ManagedClaudeInvocation:
     """Build a Claude Code stream-json subprocess invocation."""
 
+    claude_command = resolve_managed_claude_command(config.claude_bin)
     cmd = build_managed_claude_command(
-        claude_bin=config.claude_bin,
+        claude_bin=claude_command,
         prompt=request.prompt,
         session_id=request.session_id,
         fork_session=request.fork_session,
@@ -87,6 +111,7 @@ def build_managed_claude_invocation(
             "prompt": request.prompt,
             "cwd": config.workspace_path,
             "claude_binary": config.claude_bin,
+            "resolved_claude_binary": claude_command,
             "cli_argv": cmd,
         },
     )

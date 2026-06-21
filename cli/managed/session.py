@@ -14,6 +14,7 @@ from .claude import (
     ManagedClaudeParseState,
     ManagedClaudeTaskRequest,
     build_managed_claude_invocation,
+    managed_claude_command_not_found_message,
     parse_managed_claude_stdout_line,
 )
 
@@ -121,13 +122,18 @@ class ManagedClaudeSession:
             )
 
             try:
-                self.process = await asyncio.create_subprocess_exec(
-                    *invocation.argv,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    cwd=invocation.cwd,
-                    env=invocation.env,
-                )
+                try:
+                    self.process = await asyncio.create_subprocess_exec(
+                        *invocation.argv,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                        cwd=invocation.cwd,
+                        env=invocation.env,
+                    )
+                except FileNotFoundError as exc:
+                    raise FileNotFoundError(
+                        managed_claude_command_not_found_message(self.claude_bin)
+                    ) from exc
                 if self.process and self.process.pid:
                     register_pid(self.process.pid)
 

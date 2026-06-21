@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from unittest.mock import patch
 
 from cli.managed.claude import (
     ManagedClaudeConfig,
@@ -66,6 +67,24 @@ def test_managed_claude_builds_new_task_command_and_env() -> None:
     assert "ANTHROPIC_API_KEY" not in invocation.env
     assert invocation.trace_metadata["client_cli_id"] == "claude"
     assert invocation.trace_metadata["claude_binary"] == "claude"
+
+
+def test_managed_claude_resolves_windows_npm_command_shim() -> None:
+    resolved = r"C:\Users\me\AppData\Roaming\npm\claude.cmd"
+
+    with (
+        patch("cli.managed.claude.os.name", "nt"),
+        patch("cli.managed.claude.shutil.which", return_value=resolved),
+    ):
+        invocation = build_managed_claude_invocation(
+            config=_config(),
+            request=ManagedClaudeTaskRequest(prompt="hello"),
+            base_env={},
+        )
+
+    assert invocation.argv[:2] == (resolved, "-p")
+    assert invocation.trace_metadata["claude_binary"] == "claude"
+    assert invocation.trace_metadata["resolved_claude_binary"] == resolved
 
 
 def test_managed_claude_builds_resume_and_fork_commands() -> None:

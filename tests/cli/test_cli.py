@@ -264,6 +264,35 @@ class TestManagedClaudeSession:
             assert "--fork-session" not in args
 
     @pytest.mark.asyncio
+    async def test_start_task_missing_claude_command_has_actionable_error(self):
+        """Missing Claude CLI should not surface a raw platform WinError."""
+        from cli.managed.session import ManagedClaudeSession
+
+        session = ManagedClaudeSession(
+            "/tmp",
+            "http://localhost:8082/v1",
+            claude_bin="claude-missing",
+        )
+
+        with (
+            patch(
+                "asyncio.create_subprocess_exec",
+                new_callable=AsyncMock,
+                side_effect=FileNotFoundError(
+                    2,
+                    "The system cannot find the file specified",
+                ),
+            ),
+            pytest.raises(FileNotFoundError) as exc_info,
+        ):
+            async for _ in session.start_task("Hello"):
+                pass
+
+        message = str(exc_info.value)
+        assert "Could not find Claude Code command: claude-missing" in message
+        assert "npm install -g @anthropic-ai/claude-code" in message
+
+    @pytest.mark.asyncio
     async def test_start_task_with_session_resume_and_fork(self):
         """Test resuming an existing session and forking."""
         from cli.managed.session import ManagedClaudeSession
